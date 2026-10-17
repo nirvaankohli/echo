@@ -43,12 +43,35 @@ class Tasks(Queue):
                     output_tokens INTEGER NOT NULL, dollars REAL NOT NULL,
                     status TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS conversation_turns (
+                    id TEXT PRIMARY KEY, sender TEXT NOT NULL, text TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued', target TEXT, created REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id TEXT PRIMARY KEY, sender TEXT NOT NULL, role TEXT NOT NULL,
+                    text TEXT NOT NULL, created REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS conversation_order ON conversation_messages(sender,created);
+                CREATE TABLE IF NOT EXISTS task_updates (
+                    task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+                    turn_id TEXT UNIQUE NOT NULL, text TEXT NOT NULL,
+                    PRIMARY KEY(task_id,revision)
+                );
             ''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
+            for name in ('revision', 'seen_revision'):
+                if name not in columns:
+                    db.execute(f'ALTER TABLE tasks ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(events)')}
             if 'due' not in columns:
                 db.execute('ALTER TABLE events ADD COLUMN due REAL NOT NULL DEFAULT 0')
             if 'attempts' not in columns:
                 db.execute('ALTER TABLE events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0')
+            # Migrate the real exchanges once; pending/uncertain sends are not chat replies.
+            db.execute("INSERT OR IGNORE INTO conversation_messages SELECT 'user:'||id,lower(sender),'user',text,created FROM tasks")
+            db.execute("INSERT OR IGNORE INTO conversation_messages "
+                       "SELECT 'assistant:'||n.id,lower(t.sender),'assistant',n.text,n.created "
+                       "FROM notifications n JOIN tasks t ON t.id=n.task_id WHERE n.status='sent'")
 
     @staticmethod
     def _notify(db, key, task_id, text):
@@ -66,6 +89,8 @@ class Tasks(Queue):
             now = time.time()
             db.execute('INSERT INTO tasks(id,sender,text,status,created,updated) VALUES (?,?,?,?,?,?)',
                        (message_id, sender, text, status, now, now))
+            db.execute('INSERT OR IGNORE INTO conversation_messages VALUES (?,?,?,?,?)',
+                       ('user:' + message_id, sender.casefold(), 'user', text, now))
             if acknowledgement:
                 self._notify(db, message_id + ':ack', message_id, acknowledgement)
         return self.task(message_id)
@@ -94,7 +119,7 @@ class Tasks(Queue):
                                                    'ORDER BY created DESC LIMIT ?', (limit,))][::-1]
 
     def change(self, task_id, **values):
-        allowed = {'status', 'plan', 'history', 'result', 'error', 'cancel', 'rounds', 'tool_calls'}
+        allowed = {'status', 'plan', 'history', 'result', 'error', 'cancel', 'rounds', 'tool_calls', 'seen_revision'}
         if not values or not set(values) <= allowed:
             raise ValueError('Invalid task fields')
         with self.db() as db:
@@ -109,18 +134,22 @@ class Tasks(Queue):
                 db.execute("UPDATE tasks SET status='running',updated=? WHERE id=?", (time.time(), row['id']))
             return dict(row) if row else None
 
-    def finish(self, task_id, status, text):
+    def finish(self, task_id, status, text, revision=None):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            current = db.execute('SELECT status,cancel FROM tasks WHERE id=?', (task_id,)).fetchone()
+            current = db.execute('SELECT status,cancel,revision FROM tasks WHERE id=?', (task_id,)).fetchone()
             if not current or current['status'] in TERMINAL:
                 return
+            if status == 'completed' and revision is not None and current['revision'] != revision and not current['cancel']:
+                db.execute("UPDATE tasks SET status='queued' WHERE id=?", (task_id,))
+                return False  # A follow-up arrived after the last model answer. Process it first.
             if current['cancel']:
                 status, text = 'cancelled', 'Task cancelled. Already-started external actions may still have taken effect.'
             db.execute('UPDATE tasks SET status=?,result=?,updated=? WHERE id=?',
                        (status, text, time.time(), task_id))
             db.execute('INSERT OR IGNORE INTO events(id,task_id,kind,text,promised,status,created) VALUES (?,?,?,?,?,?,?)',
                        (task_id + ':final', task_id, status, text[:12000], 1, 'pending', time.time()))
+        return True
 
     def cancel(self, task_id):
         with self.db() as db:
@@ -149,7 +178,14 @@ class Tasks(Queue):
         if status not in ('sent', 'uncertain'):
             raise ValueError('Invalid delivery status')
         with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
             db.execute("UPDATE notifications SET status=? WHERE id=? AND status='pending'", (status, key))
+            row = db.execute('SELECT n.*,COALESCE(c.sender,t.sender) sender FROM notifications n '
+                             'LEFT JOIN conversation_turns c ON c.id=n.task_id '
+                             'LEFT JOIN tasks t ON t.id=n.task_id WHERE n.id=?', (key,)).fetchone()
+            if row and row['status'] == 'sent' and row['sender']:
+                db.execute('INSERT OR IGNORE INTO conversation_messages VALUES (?,?,?,?,?)',
+                           ('assistant:' + key, row['sender'].casefold(), 'assistant', row['text'], time.time()))
 
     def event(self, event_id, task_id, kind, text, promised=False):
         with self.db() as db:
@@ -186,4 +222,4 @@ class Tasks(Queue):
         with self.db() as db:
             return {table: {row['status']: row['n'] for row in db.execute(
                     f'SELECT status,COUNT(*) n FROM {table} GROUP BY status')}
-                    for table in ('tasks', 'notifications', 'jobs', 'events')}
+                    for table in ('tasks', 'conversation_turns', 'notifications', 'jobs', 'events')}

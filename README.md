@@ -130,8 +130,10 @@ and Echo bridge to be running; queued notifications wait while the bridge is off
 - Incoming messages, task state, and outgoing notifications are saved in SQLite.
   One worker executes task steps; the message inbox remains available for status
   and cancellation. Waiting for Codex frees the worker for other tasks.
-- Simple greetings use a lightweight response. Work requests get an acknowledgment,
-  a saved plan, execution using configured tools, and a separate completion message.
+- Echo keeps one persistent conversation with you, including its delivered replies.
+  Ordinary conversation and text revisions use one lightweight model call. Requests
+  needing tools get an acknowledgment, a saved plan, and a separate completion message.
+  Follow-ups can update active work before its next action without starting a second task.
 - The stronger planner is used for work requests; worker and notification models
   have separate settings. Code handles queueing, status, and ordinary completion
   delivery. There are **no idle OpenAI calls**.
@@ -143,8 +145,8 @@ and Echo bridge to be running; queued notifications wait while the bridge is off
 - A restart during active execution or a failed/interrupted iMessage send can leave
   an `uncertain` outcome. Echo does not repeat those external actions automatically.
   Exactly-once external effects and delivery cannot be guaranteed.
-- Recent task context, bounded completed-task summaries, and explicitly saved,
-  source-dated memories help follow-ups.
+- Recent user/assistant exchanges, bounded completed-task summaries, and explicitly
+  saved, source-dated memories help follow-ups. Chat history survives service restarts.
   Keyword retrieval is local and free. Task/chat records are separate from curated
   memory; `forget` does not erase those records.
 - Limits bound model rounds, tool calls, tokens, and execution time. Optional dollar

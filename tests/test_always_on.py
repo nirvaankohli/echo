@@ -302,7 +302,8 @@ class AlwaysOnTests(unittest.TestCase):
             self.coordinator.execute(self.tasks.claim())
         context = client.responses.create.call_args_list[0].kwargs['input'][0]['content']
         self.assertIn('diagrams', context)
-        self.assertLess(len(context), 5000)
+        self.assertLess(len(context), 21000)
+        self.assertIn('y' * 12000, context)  # The recent full result is no longer reduced to 800 characters.
 
     def test_control_remains_responsive_while_worker_is_blocked(self):
         self.submit()

@@ -16,7 +16,7 @@ from echo.runtime.queue import Queue
 log = logging.getLogger(__name__)
 
 
-def create_app(config, queue, wake, coordinator=None):
+def create_app(config, queue, wake, coordinator=None, conversation=None, conversation_wake=None):
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
     if len(config.get('token', '')) < 32:
@@ -31,7 +31,7 @@ def create_app(config, queue, wake, coordinator=None):
     @app.get('/v1/health')
     def health():
         return jsonify(protocol=1, role='agent', queue=queue.counts(),
-                       capabilities=['tasks-v2'] if coordinator else [],
+                       capabilities=(['tasks-v2'] if coordinator else []) + (['conversation-v1'] if conversation else []),
                        tasks=coordinator.store.summary() if coordinator else {})
 
     @app.post('/v1/messages')
@@ -66,10 +66,10 @@ def create_app(config, queue, wake, coordinator=None):
             if queue.get(data['id']):
                 return jsonify(error='Use legacy message endpoint'), 409
             try:
-                row = coordinator.receive(data['id'], data['sender'], data['text'])
+                row = (conversation or coordinator).receive(data['id'], data['sender'], data['text'])
             except ValueError:
                 return jsonify(error='Conflicting message ID'), 409
-            wake.set()
+            (conversation_wake or wake).set()
             return jsonify(id=row['id'], status=row['status'], accepted=True)
 
         @app.get('/v2/outbox')
@@ -152,14 +152,19 @@ def run():
         from echo.agent.tasks import Tasks
         from echo.agent.memory import Memory
         from echo.agent.coordinator import Coordinator
+        from echo.agent.conversation import Conversation
         tasks = Tasks(state_dir() / 'tasks.sqlite3')
         tasks.recover_tasks()
         coordinator = Coordinator(tasks, Memory(state_dir() / 'memory.sqlite3'))
+        conversation = Conversation(coordinator)
+        conversation.recover()
         wake, stop = threading.Event(), threading.Event()
-        app = create_app(config, queue, wake, coordinator)
+        conversation_wake = threading.Event()
+        app = create_app(config, queue, wake, coordinator, conversation, conversation_wake)
         with make_server('127.0.0.1', config['port'], app, server_class=LocalServer,
                          handler_class=QuietHandler) as server:
             background(worker, queue, wake, stop, tasks)
+            background(conversation.run, conversation_wake, wake, stop)
             background(coordinator.run, wake, stop)
             background(coordinator.monitor, wake, stop)
             deployment_log.startup(deployment_log.git('rev-parse', 'HEAD'), role='agent')
@@ -169,3 +174,4 @@ def run():
             finally:
                 stop.set()
                 wake.set()
+                conversation_wake.set()

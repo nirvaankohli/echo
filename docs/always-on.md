@@ -36,6 +36,13 @@ From your phone, send a new message to Echo's Apple Account email:
 5. Wait for the final result without asking for another status update. Check the
    file in the configured Codex workspace on the Echo account.
 
+To test conversational continuity, text `Draft a three-step biology study plan`,
+wait for the reply, then text `Make the second step shorter`. Echo should revise
+that plan without asking you to repeat it or announcing a new background task.
+Restart the main service and ask `What plan were we discussing?` to check persistence.
+No new setup on the Echo login is needed for conversation history; the main agent
+creates and migrates its local tables automatically when updated.
+
 This test performs a real Codex job and model calls. Offline repository tests
 mock those actions and do not send messages or make paid requests.
 
@@ -43,7 +50,9 @@ mock those actions and do not send messages or make paid requests.
 
 | Message | Behavior |
 | --- | --- |
-| A work request | Save a task, acknowledge it, plan and execute using available tools, then notify you of the result. |
+| Ordinary chat or a text revision | Answer directly using the ongoing conversation; no background task or generic acknowledgment. |
+| A request needing tools | Save a task, acknowledge it, plan and execute using available tools, then notify you of the result. |
+| A correction to active work | Attach the original message to that task and apply it before the next action. Ask for clarification if the referent is ambiguous. |
 | `status` | Show the latest relevant task state without a model call. |
 | `cancel` or `stop` | Request cancellation of active work before the next action. Already-started external actions can still finish. |
 | `remember <fact>` | Save an explicit, source-dated long-term memory. |
@@ -51,11 +60,19 @@ mock those actions and do not send messages or make paid requests.
 | `show memory` | List recent curated memories. |
 | `approve <code>` | Approve the exact saved tool action identified in Echo's request. Plain `approve` works only when exactly one action is awaiting approval. |
 
-Ordinary follow-up messages become new tasks with recent context. This version
-does not safely rewrite a running plan from a casual “change that” message. Cancel
-it first, then send the corrected request. There is one task execution worker;
-waiting on an external Codex job allows another queued task to run, but this is
-not a general parallel-agent scheduler.
+Conversation turns and background tasks are separate. A lightweight conversation
+model decides whether to reply, start tool work, or continue an existing task.
+Both it and the worker receive actual user/assistant exchanges, so “put that in a
+document” can refer to Echo's previous draft. Completed-task follow-ups may create
+a new internal work item with the same chat context; they do not reset the conversation.
+
+Corrections invalidate outdated model proposals and not-yet-started approvals.
+Changed tool arguments require a new approval where the tool policy requires one.
+A casual `yes` never approves a saved tool action. Already-started actions cannot
+be undone: a running external Codex job finishes first, and its saved follow-up is
+applied when Echo resumes. Echo tells you that limitation instead of starting a
+duplicate job. There is one task execution worker and a separate conversation
+worker; this is not a general parallel-agent scheduler.
 
 ## Tools and authorization
 
@@ -136,7 +153,16 @@ verification depends on the tools actually exposing a way to inspect the result.
 
 ## Memory and privacy
 
-Recent tasks supply conversation context. Long-term memory includes explicit
+Full local chat records include incoming text and replies confirmed sent by the
+bridge. They survive restart. Existing tasks and confirmed outgoing replies are
+migrated automatically. Pending or uncertain replies are supplied separately as
+operational state; Echo should not assume you have read them.
+
+Each model turn receives a bounded recent window (up to 40 prior messages within
+24,000 characters including the current message), preserving whole messages and
+their user/assistant roles. Older chat is retained locally but is not all uploaded
+on every request. This is bounded conversation context, not unlimited recall.
+Long-term memory includes explicit
 `remember` requests and bounded summaries of completed non-social tasks: the first
 600 characters of the request plus the first 1800 characters of the outcome.
 Those summaries require no extra model call and let older results remain searchable
@@ -171,12 +197,13 @@ The defaults are configuration choices, not a quoted monthly price:
 | --- | --- | --- |
 | `OPENAI_PLANNER_MODEL` | `gpt-4.1` | Plan work requests. |
 | `OPENAI_WORKER_MODEL` | `gpt-4.1-mini` | Execute task steps and produce answers. |
+| `OPENAI_CONVERSATION_MODEL` | Worker model | Answer ordinary chat and route work/follow-ups in one call. |
 | `OPENAI_NOTIFICATION_MODEL` | `gpt-4.1-mini` | Judge supported non-routine events. |
 | `ECHO_MAX_ROUNDS` | `8` | Maximum worker response rounds per task. |
 | `ECHO_MAX_TOOL_CALLS` | `12` | Maximum tool actions per task. |
 | `ECHO_TASK_SECONDS` | `600` | Active execution segment time limit; not a wall-clock guarantee for an external job. |
 | `ECHO_JOB_WATCH_SECONDS` | `7200` | Maximum tracking window for an external job. |
-| `ECHO_TASK_TOKEN_LIMIT` | `64000` | Per-task input plus output token allowance. |
+| `ECHO_TASK_TOKEN_LIMIT` | `64000` | Input plus output allowance per chat turn; new tool work shares its originating turn's allowance. |
 | `ECHO_DAILY_TOKEN_LIMIT` | `250000` | Shared daily token allowance. |
 | `ECHO_DAILY_USD_LIMIT` | `0` | Optional dollar cap; zero disables the dollar cap. |
 | `ECHO_MODEL_PRICES` | `{}` | Verified input/output rates in USD per million tokens, keyed by model. |
