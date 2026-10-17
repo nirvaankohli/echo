@@ -9,7 +9,7 @@ import subprocess
 from unittest.mock import patch
 
 from messaging.imsg_transport import handle_message
-from run_echo import select_chat
+from run_echo import ChatSelectionError, select_chat
 
 
 def main():
@@ -44,6 +44,11 @@ def main():
 if __name__ == '__main__':
     try:
         main()
+    except ChatSelectionError as exc:
+        print(f'Diagnosis stopped: {exc}')
+        print('If access failed: enable Terminal in System Settings > Privacy & Security > Full Disk Access.')
+        print('Quit Terminal completely, reopen it, and double-click Diagnose Echo.command again.')
+        print('If no unique chat was found: the bot recipient does not resolve to one direct iMessage conversation.')
     except Exception as exc:
         print(f'Diagnosis stopped ({type(exc).__name__}). Check installation and launcher permissions.')
     input('\nPress Enter to close.')
