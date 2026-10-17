@@ -47,9 +47,19 @@ def install_service(config: dict, home: Path) -> None:
     domain = f'gui/{os.getuid()}'
     target = f"{domain}/{config['Label']}"
     loaded = subprocess.run(['launchctl', 'print', target], capture_output=True, timeout=10)
-    if loaded.returncode == 0:
-        subprocess.run(['launchctl', 'bootout', target], check=True, timeout=20)
-    subprocess.run(['launchctl', 'bootstrap', domain, str(path)], check=True, timeout=20)
+    try:
+        if loaded.returncode == 0:
+            subprocess.run(['launchctl', 'bootout', target], check=True, timeout=20, capture_output=True)
+        # A disabled override survives logins, reboots and replacing the plist.
+        subprocess.run(['launchctl', 'enable', target], check=True, timeout=20, capture_output=True)
+        subprocess.run(['launchctl', 'bootstrap', domain, str(path)], check=True, timeout=20,
+                       capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"Could not install {config['Label']}: launchctl {exc.cmd[1]} failed (code {exc.returncode}). "
+            'Stay in this Mac login and choose 5 (Show status) in Setup Echo.command. '
+            'Do not run setup with sudo.'
+        ) from None
     print(f"Loaded {config['Label']}; check logs and test a new phone message.")
 
 

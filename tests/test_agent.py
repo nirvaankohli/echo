@@ -60,7 +60,7 @@ class ServiceInstallTests(unittest.TestCase):
             saved = plistlib.loads((home / 'Library/LaunchAgents/local.echo.bot.plist').read_bytes())
             self.assertEqual(saved, config)
         commands = [call.args[0] for call in run.call_args_list]
-        self.assertEqual([cmd[1] for cmd in commands], ['print', 'bootout', 'bootstrap'])
+        self.assertEqual([cmd[1] for cmd in commands], ['print', 'bootout', 'enable', 'bootstrap'])
 
     @patch('echo.runtime.service.subprocess.run')
     def test_new_service_bootstraps_without_bootout(self, run):
@@ -70,7 +70,45 @@ class ServiceInstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             install_service(build_plist(home / 'echo', home, 'test@example.com', '/opt/homebrew/bin/imsg'), home)
-        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['print', 'bootstrap'])
+        self.assertEqual([call.args[0][1] for call in run.call_args_list], ['print', 'enable', 'bootstrap'])
+
+    @patch('echo.runtime.service.subprocess.run')
+    def test_disabled_service_is_enabled_before_bootstrap(self, run):
+        import subprocess
+        import tempfile
+        from echo.runtime.service import install_service
+        disabled = True
+
+        def launch(command, **kwargs):
+            nonlocal disabled
+            if command[1] == 'enable':
+                disabled = False
+            if command[1] == 'bootstrap' and disabled:
+                raise subprocess.CalledProcessError(5, command)
+            return subprocess.CompletedProcess(command, 1 if command[1] == 'print' else 0)
+
+        run.side_effect = launch
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            install_service(build_plist(home / 'echo', home, 'test@example.com', '/opt/homebrew/bin/imsg'), home)
+        self.assertFalse(disabled)
+
+    @patch('echo.runtime.service.subprocess.run')
+    def test_bootstrap_error_identifies_service_without_root_advice(self, run):
+        import subprocess
+        import tempfile
+        from echo.runtime.service import install_service
+
+        def launch(command, **kwargs):
+            if command[1] == 'bootstrap':
+                raise subprocess.CalledProcessError(5, command)
+            return subprocess.CompletedProcess(command, 1 if command[1] == 'print' else 0)
+
+        run.side_effect = launch
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, r'local.echo.bot.*bootstrap.*5'):
+                install_service(build_plist(home / 'echo', home, 'test@example.com', '/opt/homebrew/bin/imsg'), home)
 
     def test_updater_is_periodic_and_keep_awake_wraps_only_bot(self):
         project, home = Path('/Users/echo/My Bot'), Path('/Users/echo')
