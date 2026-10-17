@@ -365,3 +365,12 @@ that the filter would accept; it does not verify live watcher delivery or OpenAI
 If diagnosis itself lacks Messages access, grant its launcher the usual permission.
 Normal bot logs now also show accepted messages, skipped-message reasons, and when
 the agent responds. These diagnostics are local, not uploaded as deployment events.
+
+### Service-neutral direct conversations
+
+macOS may label a direct conversation `any;-;recipient` even when the launcher
+lists it as iMessage. Both normal incoming mode and self-chat mode support this
+format. The GUID must match the nonempty chat identifier, the event must belong
+to the selected chat, and group events are rejected. Replies target that exact
+identifier with iMessage explicitly selected and SMS fallback disabled. Normal
+mode still ignores outgoing messages; self-chat mode still requires `/echo`.

@@ -115,3 +115,35 @@ class SelfChatTests(unittest.TestCase):
                         {'chat_identifier': '+15551234567', 'is_group': True}]:
             self.assertFalse(handle_message({**base, **changes}, 42, self_chat=True))
         process.assert_not_called()
+
+
+class IncomingNeutralChatTests(unittest.TestCase):
+    event = {**EVENT, 'chat_guid': 'any;-;test@example.com',
+             'chat_identifier': 'test@example.com', 'is_group': False}
+
+    @patch('messaging.imsg_transport.subprocess.run')
+    @patch('agent.processor.process_message', return_value='agent reply')
+    def test_incoming_direct_chat_replies_once_using_imessage(self, process, run):
+        run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
+        self.assertTrue(handle_message(self.event, 42, send=True))
+        process.assert_called_once_with('Hello', 'test@example.com')
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index('--to') + 1], 'test@example.com')
+        self.assertEqual(command[command.index('--text') + 1], 'agent reply')
+        self.assertEqual(command[command.index('--service') + 1], 'imessage')
+        self.assertIn('--no-sms-fallback', command)
+        self.assertFalse(handle_message({**self.event, 'is_from_me': True}, 42, send=True))
+        run.assert_called_once()
+        process.assert_called_once()
+
+    @patch('messaging.imsg_transport.subprocess.run')
+    @patch('agent.processor.process_message')
+    def test_invalid_recipients_groups_and_other_chats_never_process(self, process, run):
+        for changes in [{'chat_identifier': None}, {'chat_identifier': ''},
+                        {'chat_identifier': 'different@example.com'}, {'is_group': True},
+                        {'chat_guid': 'any;+;group'}, {'chat_id': 43},
+                        {'chat_guid': 'SMS;-;test@example.com'}, {'is_reaction': True}]:
+            with self.subTest(changes=changes):
+                self.assertFalse(handle_message({**self.event, **changes}, 42, send=True))
+        process.assert_not_called()
+        run.assert_not_called()

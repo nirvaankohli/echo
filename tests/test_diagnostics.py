@@ -8,7 +8,7 @@ from run_echo import ChatSelectionError
 class DiagnosticsTests(unittest.TestCase):
     @patch('agent.processor.process_message')
     def test_skipped_chat_format_is_logged_without_private_data(self, process):
-        event = {'chat_id': 42, 'chat_guid': 'any;-;private@example.com',
+        event = {'chat_id': 42, 'chat_guid': 'SMS;-;private@example.com',
                  'chat_identifier': 'private@example.com', 'sender': 'private@example.com',
                  'text': 'private message text', 'is_from_me': False}
         with self.assertLogs('messaging.imsg_transport', level='INFO') as logs:

@@ -30,11 +30,13 @@ def handle_message(event: dict, chat_id: int, *, send: bool = False,
     if not isinstance(guid, str):
         return ignored('missing chat format')
     destination = ['--chat-guid', guid]
-    if self_chat and guid.startswith('any;-;'):
-        # macOS can use a service-neutral GUID for a direct self-conversation.
+    if guid.startswith('any;-;'):
+        # macOS can use a service-neutral GUID for any direct conversation.
         # Resolve its exact recipient and explicitly require iMessage when sending.
         identifier = event.get('chat_identifier')
-        if not isinstance(identifier, str) or not identifier or guid != f'any;-;{identifier}':
+        if (not isinstance(identifier, str) or not identifier.strip()
+                or guid != f'any;-;{identifier}' or ';+;' in guid
+                or event.get('is_group') is True):
             return ignored('invalid service-neutral recipient')
         destination = ['--to', identifier]
     elif not guid.startswith('iMessage;'):
