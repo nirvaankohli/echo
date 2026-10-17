@@ -1,6 +1,7 @@
 """All reply generation lives here; independent of the message transport."""
 
 import os
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,21 +11,25 @@ ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
 INSTRUCTIONS = (
     'You are Echo, a helpful personal assistant chatting over iMessage. '
     'Give clear, concise, conversational answers. Use plain text. '
-    'You have no tools or access to the computer, calendar, files, or live web. '
-    'Never claim to have taken an action or scheduled a reminder. '
+    'Only claim actions confirmed by available tools. '
     'Never begin a reply with /echo.'
 )
 
 
-def process_message(message: str, sender: str) -> str:
+def process_message(message: str, sender: str, *, allow_tools: bool = False) -> str:
     """Generate one stateless reply. Sender stays local; no history is uploaded."""
     load_dotenv(ENV_PATH)
     if not os.environ.get('OPENAI_API_KEY', '').strip():
         raise ValueError('Set OPENAI_API_KEY in the project .env file')
     with OpenAI(timeout=30.0, max_retries=1) as client:
+        if allow_tools:
+            from agent.tools import enabled_for, respond
+            if enabled_for(sender):
+                return asyncio.run(respond(client, message, INSTRUCTIONS,
+                                           os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')))
         result = client.responses.create(
             model=os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini'),
-            instructions=INSTRUCTIONS,
+            instructions=INSTRUCTIONS + 'You have no tools, computer access, or scheduling capability.',
             input=message,
             max_output_tokens=600,
             store=False,
@@ -40,9 +45,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Test OpenAI without sending iMessages.')
     parser.add_argument('message', nargs='?', default='Hello')
     parser.add_argument('--sender', default='local-test')
+    parser.add_argument('--tools', action='store_true', help='Allow real tools for the configured owner')
     args = parser.parse_args()
     try:
-        print(process_message(args.message, args.sender))
+        print(process_message(args.message, args.sender, allow_tools=args.tools))
     except Exception as exc:
         # API exceptions can include request details; do not expose them in logs.
         parser.exit(1, f'Agent failed ({type(exc).__name__}). Check your API key, model, billing, and connection.\n')

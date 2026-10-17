@@ -38,10 +38,87 @@ flowchart LR
 
 `agent/processor.py` owns all reply generation. It calls OpenAI using
 `gpt-4.1-mini` by default, configurable with `OPENAI_MODEL`. Each message is
-independent: no memory, database, web browsing, computer tools, or scheduled tasks.
-The message text is sent to OpenAI; the sender identifier is not. Requests set
+independent: no conversation memory or scheduled tasks. Optional MCP tools let
+Echo delegate coding work to Codex and fetch job results (see below).
+The message text and any enabled tool results are sent to OpenAI; the sender identifier is not. Requests set
 `store=False` (this is not a promise of zero provider retention). API usage is
-billed separately from a ChatGPT subscription. Dry runs still call OpenAI.
+billed separately from a ChatGPT subscription. Dry runs still call OpenAI but cannot run tools.
+
+## Codex through MCP
+
+This first version starts **new Codex coding jobs** on Echo's Mac. It does not
+control existing desktop chats or click around other apps. The connection is:
+
+```text
+iMessage → processor → OpenAI tool calls → local MCP server → Codex CLI
+                                      ← job status / result ←
+```
+
+In the **Echo macOS login**, pull the update, install requirements with the
+project's virtual environment, and **double-click `Enable Codex.command`**.
+Use Python 3.11 or newer (required by the MCP dependency). Install Codex CLI
+first if missing, following the [official CLI setup](https://learn.chatgpt.com/docs/cli).
+The setup signs into Codex if needed, asks which project folder it may edit,
+sets the allowed iMessage sender, and restarts an installed Echo service.
+Your main Mac user's Codex sign-in does not sign in the separate Echo user.
+
+The default folder is `~/EchoWorkspace`. Choose a separate checkout of an existing
+project if you want Codex to work on that project; the running Echo checkout and
+its parent folders are rejected. Setup preserves existing `.env` values.
+Tools remain disabled until setup runs or you set these values yourself:
+
+```dotenv
+ECHO_MCP_ENABLED=1
+ECHO_TOOL_OWNER=+19089691989
+ECHO_CODEX_WORKSPACE=/Users/echo/EchoWorkspace
+```
+
+Then text Echo:
+
+- “Ask Codex to create a hello.txt file saying hello.”
+- “What is the status of my latest Codex job?”
+- “Show the result for job [ID].”
+
+Echo returns a job ID quickly; Codex continues after that message finishes.
+Ask for status again to get the result—this version does not send proactive
+completion notifications. Each message has no conversation memory, but the job
+list persists. One job runs at a time to avoid conflicting edits. Jobs time out
+after 30 minutes. Codex uses its own login and default model, the `workspace-write`
+sandbox, and no interactive approvals. Actions requiring more permission fail.
+This controls writes, not a guarantee that all other local files are unreadable.
+User Codex configuration is ignored for these runs, so unrelated configured MCP
+servers are not automatically inherited. The Echo OpenAI key is not passed to Codex.
+
+Only the exact configured owner in a direct incoming iMessage may use tools.
+Dry runs, processor CLI tests without `--tools`, self-chat mode, and the
+unauthenticated BlueBubbles webhook have tools disabled. To test tools directly
+without sending iMessages (this **can start real jobs**):
+
+```sh
+.venv/bin/python -m agent.processor "List my Codex jobs" --sender +19089691989 --tools
+```
+
+Job state, results, and Codex diagnostics stay in
+`~/Library/Application Support/Echo/jobs/`, outside Git. They may contain project
+content; they are not published with deployment logs or automatically rotated.
+Completed results sent to Echo's OpenAI model are limited to the last 12 KB.
+Running jobs normally survive Echo/MCP restarts. Logout, reboot, or worker crashes
+can interrupt them; interrupted jobs are shown as interrupted and never replayed.
+If a tool call loses its connection, check the job list before requesting the same
+work again. Files changed by Codex stay in the configured workspace for review.
+
+The MCP server is stdio-only, with no network port. Any local MCP client can
+launch it using the absolute virtual-environment Python path, arguments
+`["-m", "agent.mcp_server"]`, and this repository as its working directory.
+Local clients have the Mac user's authority; the sender check belongs to Echo's
+message processor, not to the MCP protocol. Its three tools are `codex_start`,
+`codex_status`, and `codex_jobs`. Add future tools in `agent/mcp_server.py`;
+`agent/tools.py` discovers their schemas automatically. Response wording remains
+in `agent/processor.py`.
+
+Implementation follows [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
+and [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling),
+using the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
 
 ## What happens when you switch users?
 
@@ -175,17 +252,20 @@ have a 45-second timeout and are never retried automatically, since delivery
 may already have happened. No exactly-once delivery guarantee. A local send
 confirmation does not prove delivery to the phone.
 
-The AI runs only when a message arrives. It does not continuously think, monitor
-your apps, or proactively schedule work. For now replies have no conversation
-history, and restarting loses no agent memory because none is stored.
+Echo's reply generation runs when a message arrives. A requested Codex job can
+continue in the background between messages. Echo does not monitor your apps or
+proactively schedule work. Replies have no conversation history; Codex job status
+and results persist separately on disk.
 
 ## Extending Echo
 
-There are three places to work:
+The main extension points are:
 
 - **Agent behavior:** edit `agent/processor.py`. Its interface stays
-  `process_message(message, sender) -> str`; return an empty string to skip a reply.
-  Add memory or tools here without changing the launchers or transports.
+  `process_message(message, sender, *, allow_tools=False) -> str`; return an empty
+  string to skip a reply. Add conversation memory here.
+- **Tools:** register functions in `agent/mcp_server.py`. `agent/tools.py` connects
+  their MCP schemas to the response loop; `agent/codex_jobs.py` owns Codex work.
 - **Messaging:** `messaging/imsg_transport.py` separates watching, handling an event,
   and sending a reply. `send_reply` owns send confirmation and error handling.
   The optional BlueBubbles adapter uses the same processor interface.
@@ -201,6 +281,9 @@ entry points remain supported, and no framework or plugin registry is needed.
 - `imsg_main.py`: compatibility entry point for `run_echo.py --chat-id`; no duplicated launcher logic.
 - `messaging/imsg_transport.py`: receives events, filters, calls processor, sends.
 - `agent/processor.py`: OpenAI instructions and reply generation only.
+- `agent/mcp_server.py`, `agent/tools.py`: local MCP server and OpenAI tool bridge.
+- `agent/codex_jobs.py`: detached Codex jobs, durable status, and results.
+- `Enable Codex.command`, `agent/setup_tools.py`: one-time owner/workspace setup.
 - `service.py`: creates a per-user LaunchAgent configuration.
 - `main.py`, `messaging/receiver.py`, `messaging/sender.py`: optional Flask/BlueBubbles mode.
 
@@ -209,6 +292,8 @@ entry points remain supported, and no framework or plugin registry is needed.
 ```
 
 Tests mock OpenAI and messaging calls: no API costs or actual iMessages.
+MCP tests connect through a real stdio subprocess and launch a fake Codex CLI to
+verify job lifetimes, failures, timeouts, and owner restrictions without paid runs.
 A live API test requires a configured key and model access.
 
 Same-account testing is still supported with `--self-chat`: only outgoing

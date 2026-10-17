@@ -54,7 +54,10 @@ def handle_message(event: dict, chat_id: int, *, send: bool = False,
         return ignored('empty text or sender')
 
     logger.info('Incoming text accepted; requesting agent response')
-    response = processor.process_message(text, address)
+    response = processor.process_message(
+        text, address, allow_tools=send and not self_chat
+        and ';+;' not in guid and event.get('is_group') is not True,
+    )
     logger.info('Agent returned a response')
     if not isinstance(response, str):
         raise TypeError('Processor must return a string')

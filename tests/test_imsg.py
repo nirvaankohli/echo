@@ -15,7 +15,7 @@ class ImsgTests(unittest.TestCase):
     @patch('agent.processor.process_message', return_value='replacement response')
     def test_dry_run_calls_agent_without_sending(self, process, run):
         self.assertTrue(handle_message(EVENT, 42))
-        process.assert_called_once_with('Hello', 'test@example.com')
+        process.assert_called_once_with('Hello', 'test@example.com', allow_tools=False)
         run.assert_not_called()
 
     @patch('messaging.imsg_transport.subprocess.run')
@@ -27,6 +27,15 @@ class ImsgTests(unittest.TestCase):
         self.assertEqual(command[command.index('--text') + 1], 'replacement response')
         self.assertEqual(command[command.index('--chat-guid') + 1], EVENT['chat_guid'])
         self.assertIn('--no-sms-fallback', command)
+
+    @patch('messaging.imsg_transport.subprocess.run')
+    @patch('agent.processor.process_message', return_value='response')
+    def test_group_replies_cannot_run_tools(self, process, run):
+        run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
+        for changes in ({'chat_guid': 'iMessage;+;group'}, {'is_group': True}):
+            process.reset_mock()
+            self.assertTrue(handle_message({**EVENT, **changes}, 42, send=True))
+            process.assert_called_once_with('Hello', 'test@example.com', allow_tools=False)
 
     @patch('agent.processor.process_message')
     def test_ignores_own_other_chat_and_non_text_events(self, process):
@@ -69,7 +78,7 @@ class SelfChatTests(unittest.TestCase):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         event = {**EVENT, 'is_from_me': True, 'sender': '', 'text': '/echo hello'}
         self.assertTrue(handle_message(event, 42, self_chat=True, send=True))
-        process.assert_called_once_with('hello', 'self')
+        process.assert_called_once_with('hello', 'self', allow_tools=False)
         run.assert_called_once()
 
     @patch('agent.processor.process_message')
@@ -98,7 +107,7 @@ class SelfChatTests(unittest.TestCase):
                  'chat_identifier': '+15551234567', 'is_group': False,
                  'text': '/echo hiii', 'is_from_me': True}
         self.assertTrue(handle_message(event, 42, self_chat=True, send=True))
-        process.assert_called_once_with('hiii', 'self')
+        process.assert_called_once_with('hiii', 'self', allow_tools=False)
         command = run.call_args.args[0]
         self.assertEqual(command[command.index('--to') + 1], '+15551234567')
         self.assertEqual(command[command.index('--service') + 1], 'imessage')
@@ -126,7 +135,7 @@ class IncomingNeutralChatTests(unittest.TestCase):
     def test_incoming_direct_chat_replies_once_using_imessage(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         self.assertTrue(handle_message(self.event, 42, send=True))
-        process.assert_called_once_with('Hello', 'test@example.com')
+        process.assert_called_once_with('Hello', 'test@example.com', allow_tools=True)
         command = run.call_args.args[0]
         self.assertEqual(command[command.index('--to') + 1], 'test@example.com')
         self.assertEqual(command[command.index('--text') + 1], 'agent reply')
