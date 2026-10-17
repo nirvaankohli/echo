@@ -1,4 +1,4 @@
-"""All reply generation lives here; independent of the message transport."""
+"""Legacy stateless response generation, independent of the message transport."""
 
 import os
 import asyncio
@@ -17,19 +17,20 @@ INSTRUCTIONS = (
 )
 
 
-def process_message(message: str, sender: str, *, allow_tools: bool = False) -> str:
+def process_message(message: str, sender: str, *, allow_tools: bool = False, budget=None) -> str:
     """Generate one stateless reply. Sender stays local; no history is uploaded."""
     load_env()
     load_dotenv(ENV_PATH)
     if not os.environ.get('OPENAI_API_KEY', '').strip():
         raise ValueError('Set OPENAI_API_KEY in the project .env file')
-    with OpenAI(timeout=30.0, max_retries=1) as client:
+    with OpenAI(timeout=30.0, max_retries=0 if budget else 1) as client:
         if allow_tools:
             from echo.tools.client import enabled_for, respond
             if enabled_for(sender):
                 return asyncio.run(respond(client, message, INSTRUCTIONS,
-                                           os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')))
-        result = client.responses.create(
+                                           os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini'), budget=budget))
+        create = (lambda **kwargs: budget.create(client, **kwargs)) if budget else client.responses.create
+        result = create(
             model=os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini'),
             instructions=INSTRUCTIONS + 'You have no tools, computer access, or scheduling capability.',
             input=message,

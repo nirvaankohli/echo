@@ -1,5 +1,6 @@
 """Discover configured MCP servers and connect their tools to OpenAI."""
 import asyncio
+import hashlib
 from contextlib import AsyncExitStack
 import json
 import logging
@@ -58,7 +59,7 @@ async def connect(stack, config):
     return await stack.enter_async_context(Client(transport, read_timeout_seconds=30))
 
 
-async def discover(stack):
+async def discover(stack, *, stable=False):
     tools, routes = [], {}
     for index, (server_name, config) in enumerate(configured_servers().items()):
         try:
@@ -72,23 +73,36 @@ async def discover(stack):
         for number, tool in enumerate(listing.tools):
             # Stable, valid OpenAI names; MCP names themselves may contain other characters.
             name = tool.name if server_name == 'echo' and re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', tool.name) else f'mcp{index}_tool{number}'
+            if stable:
+                name = 'tool_' + hashlib.sha256((server_name + ':' + tool.name).encode()).hexdigest()[:32]
             if name in routes:
                 raise ValueError('Duplicate tool name')
             tools.append(dict(type='function', name=name,
                               description=f'{server_name}: {tool.name}. {tool.description or ""}',
                               parameters=tool.input_schema, strict=False))
             routes[name] = (client, tool.name)
+            if stable:
+                annotation = getattr(tool, 'annotations', None)
+                readonly = bool(getattr(annotation, 'read_only_hint', False) or getattr(annotation, 'readOnlyHint', False))
+                builtin = server_name == 'echo' and config.get('args') == ['-m', 'echo.tools.mcp_server']
+                policy = config.get('tool_policy', {}).get(tool.name,
+                    'read' if readonly or (builtin and tool.name in ('codex_status', 'codex_jobs')) else
+                    ('private_write' if builtin and tool.name == 'codex_start' else 'approval'))
+                if policy not in ('read', 'private_write', 'approval'):
+                    raise ValueError('Invalid MCP tool policy')
+                routes[name] += (server_name, policy)
     return tools, routes
 
 
-async def respond(client, message, instructions, model):
+async def respond(client, message, instructions, model, *, budget=None):
     async with AsyncExitStack() as stack:
         tools, routes = await discover(stack)
         history = [{'role': 'user', 'content': message}]
         started = False
+        create = (lambda **kwargs: budget.create(client, **kwargs)) if budget else client.responses.create
         for _ in range(8):
             result = await asyncio.to_thread(
-                client.responses.create, model=model, instructions=instructions + TOOL_INSTRUCTIONS,
+                create, model=model, instructions=instructions + TOOL_INSTRUCTIONS,
                 input=list(history), tools=tools, parallel_tool_calls=False,
                 max_output_tokens=1200, store=False,
             )

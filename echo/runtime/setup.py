@@ -89,7 +89,8 @@ def setup_agent():
     if not mcp.exists():
         write_json(mcp, {'servers': {'echo_codex': {
             'enabled': False, 'url': 'http://127.0.0.1:8878/mcp',
-            'header_env': {'Authorization': 'ECHO_WORKER_AUTH'}}}})
+            'header_env': {'Authorization': 'ECHO_WORKER_AUTH'},
+            'tool_policy': {'codex_start': 'private_write', 'codex_status': 'read', 'codex_jobs': 'read'}}}})
     install('agent')
     print(f'Agent installed. Pairing saved for {username}: {pairing.name}')
     print('Now switch to the Echo login, open scripts/Setup Echo.command there, and choose Messages bridge.')

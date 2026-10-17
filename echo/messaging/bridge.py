@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 
 import requests
 
@@ -77,18 +78,35 @@ def relay_one(queue, row, session, config, executable):
 
 
 def dispatcher(queue, config, executable, wake, stop):
+    deliveries = Queue(state_dir() / 'deliveries.sqlite3')
+    deliveries.recover('sending')
     with requests.Session() as session:
-        session.trust_env = False  # Local inter-user traffic must not use proxy credentials.
+        session.trust_env = False
+        modern, checked = False, 0
         while not stop.is_set():
             wake.clear()
             offline = False
-            # One status request per tick, not a poll storm proportional to backlog size.
-            for row in queue.pending(('queued', 'waiting'))[:1]:
-                if stop.is_set():
-                    return
-                offline = relay_one(queue, row, session, config, executable) is False
+            try:
+                if time.monotonic() - checked > 60 or not checked:
+                    health = session.get(f"http://127.0.0.1:{config['port']}/v1/health",
+                        headers={'Authorization': 'Bearer ' + config['token']}, timeout=(2, 10))
+                    health.raise_for_status()
+                    modern = 'tasks-v2' in health.json().get('capabilities', [])
+                    checked = time.monotonic()
+                for row in queue.pending(('queued', 'waiting', 'v2_pending'))[:1]:
+                    if stop.is_set():
+                        return
+                    if row['status'] == 'v2_pending' or (modern and row['status'] == 'queued'):
+                        relay_task(queue, row, session, config)
+                    else:
+                        offline = relay_one(queue, row, session, config, executable) is False
+                if modern:
+                    deliver_notifications(deliveries, session, config, executable)
+            except (requests.RequestException, ValueError, KeyError) as exc:
+                log.warning('Bridge connection deferred (%s)', type(exc).__name__)
+                offline = True
             counts = queue.counts()
-            wake.wait(15 if offline else (2 if counts.get('queued', 0) + counts.get('waiting', 0) else 30))
+            wake.wait(15 if offline else (2 if counts.get('queued', 0) + counts.get('waiting', 0) else 5))
 
 
 def run():
@@ -120,3 +138,53 @@ def run():
             wake.set()
             awake.terminate()
             awake.wait(timeout=5)
+
+
+def relay_task(queue, row, session, config):
+    payload = json.loads(row['payload'])
+    # Pin protocol before the request. A lost response must never fall back to duplicate legacy work.
+    queue.update(row['id'], 'v2_pending', delay=15)
+    response = session.post(f"http://127.0.0.1:{config['port']}/v2/messages",
+                            json=dict(id=row['id'], sender=payload['sender'], text=payload['text']),
+                            headers={'Authorization': 'Bearer ' + config['token']}, timeout=(2, 10))
+    if response.status_code == 409 and response.json().get('error') == 'Use legacy message endpoint':
+        queue.update(row['id'], 'waiting')
+        return
+    if response.status_code in (400, 401, 403, 409, 413):
+        queue.update(row['id'], 'failed', error=f'Agent rejected task: HTTP {response.status_code}')
+        return
+    response.raise_for_status()
+    data = response.json()
+    if data.get('id') != row['id'] or data.get('accepted') is not True:
+        raise ValueError('Invalid task receipt')
+    queue.update(row['id'], 'submitted')
+
+
+def deliver_notifications(deliveries, session, config, executable):
+    base = f"http://127.0.0.1:{config['port']}"
+    headers = {'Authorization': 'Bearer ' + config['token']}
+    response = session.get(base + '/v2/outbox', headers=headers, timeout=(2, 10))
+    response.raise_for_status()
+    notifications = response.json()['notifications']
+    if not isinstance(notifications, list) or len(notifications) > 20:
+        raise ValueError('Invalid notification list')
+    for item in notifications:
+        if (not isinstance(item, dict) or not isinstance(item.get('id'), str)
+                or len(item['id']) > 300 or not isinstance(item.get('text'), str)
+                or not item['text'].strip() or len(item['text']) > 12000):
+            raise ValueError('Invalid notification')
+        row = deliveries.put(item['id'], {'text': item['text']})
+        if row['status'] == 'queued':
+            deliveries.update(item['id'], 'sending')
+            try:
+                # Destination comes only from local pairing configuration, never remote event text.
+                send_reply(item['text'], ['--to', config['owner']], executable)
+            except Exception as exc:
+                deliveries.update(item['id'], 'uncertain', error=type(exc).__name__)
+            else:
+                deliveries.update(item['id'], 'sent')
+            row = deliveries.get(item['id'])
+        if row['status'] in ('sent', 'uncertain'):
+            ack = session.post(base + '/v2/outbox/ack', json=dict(id=item['id'], status=row['status']),
+                               headers=headers, timeout=(2, 10))
+            ack.raise_for_status()

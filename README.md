@@ -37,7 +37,8 @@ the old background launchers working until you run setup.
 3. Choose **5 — Show status** on both logins. The agent must be reachable and
    `local.echo.bot` should show `state = running`. On Echo, send a **new** message
    from your phone to the bot's Apple Account email. You should receive the
-   agent's answer. First installation starts with new messages, not old history.
+   agent's answer. Longer requests get an acknowledgment followed by a result.
+   First installation starts with new messages, not old history.
 
 If the updater is already working, the changes should arrive at its next
 five-minute check. A dirty checkout is intentionally not auto-updated. The setup
@@ -96,7 +97,7 @@ run with your main user's permissions. Remote HTTP requires HTTPS except for
 loopback addresses. Only the configured phone sender can trigger tools; email,
 project files and tool results are treated as data, not user authorization.
 
-MCP configuration is read for each message. Unavailable servers are logged and
+MCP configuration is read for each task execution. Unavailable servers are logged and
 their tools omitted so ordinary chat can continue. Set `"required": true` on a
 server if its failure should stop processing instead. After changing secret environment
 values, choose **7 — Restart this login** on your main login. To check connections without invoking
@@ -113,33 +114,44 @@ CLI first if missing. Setup signs into Codex in that login if necessary and asks
 for a working folder separate from the running Echo checkout. Then on your main
 login choose **6** and change `echo_codex.enabled` to `true`.
 
-Text “Ask Codex to create a hello.txt file saying hello.” Then text “What is the
-status of my latest Codex job?” Codex works in the background and returns results
-when asked. It uses its own login, one job at a time, a 30-minute timeout and the
-workspace-write sandbox. It does not control existing Codex desktop chats or
-send proactive completion notifications. Existing jobs survive an MCP restart;
-uncertain jobs are not automatically repeated.
+Text “Ask Codex to create a hello.txt file saying hello.” If Echo requests approval,
+review the saved tool arguments and reply with its `approve <code>` command. Echo acknowledges the
+request, tracks the job, and sends the final result automatically. Text `status`
+while it works. The worker uses its own Codex login, one job at a time, a
+30-minute timeout, and the workspace-write sandbox. It does not control existing
+Codex desktop chats. Existing jobs survive an MCP restart; uncertain jobs are
+not automatically repeated. Completion follow-ups require both the main agent
+and Echo bridge to be running; queued notifications wait while the bridge is offline.
 
 ## Always running, without an idle model loop
 
 - LaunchAgents start each process when its Mac user logs in and restart failures.
 - The bridge uses `imsg watch` filesystem notifications, not continuous history polling.
-- Incoming messages are saved in SQLite before forwarding; model work runs one
-  message at a time. Idle workers wait on events. There are **no idle OpenAI calls**.
-- The bridge polls only while messages are pending: normally every two seconds,
-  or every fifteen seconds after a connection failure. An offline main agent
-  leaves messages queued. Queued work resumes when it returns.
-- Stable message GUIDs make HTTP retries reuse existing work and completed replies.
-  The bridge saves its Messages row cursor and resumes it after restart using
-  `imsg watch --since-rowid` (verified against the installed imsg CLI).
-- A restart during agent processing marks that request `uncertain`. A failed or
-  interrupted iMessage send is also not automatically repeated. Inspect status
-  before resending a task; exactly-once external tool effects/delivery cannot be
-  guaranteed. There is no automatic retry for failed model/tool actions.
-- Tools are discovered when processing a message. The response loop has an
-  eight-round limit; model and tool calls have timeouts. No periodic LLM heartbeat.
-- Replies currently have no conversational memory. Durable queues and Codex job
-  results are operational state, not a chat history supplied to the model.
+- Incoming messages, task state, and outgoing notifications are saved in SQLite.
+  One worker executes task steps; the message inbox remains available for status
+  and cancellation. Waiting for Codex frees the worker for other tasks.
+- Simple greetings use a lightweight response. Work requests get an acknowledgment,
+  a saved plan, execution using configured tools, and a separate completion message.
+- The stronger planner is used for work requests; worker and notification models
+  have separate settings. Code handles queueing, status, and ordinary completion
+  delivery. There are **no idle OpenAI calls**.
+- Codex completion is tracked automatically. Generic MCP servers do not all emit
+  completion events; this does not install arbitrary webhooks, schedules, Canvas,
+  Gmail, or browser automation for you.
+- Stable message GUIDs make HTTP retries reuse existing work. Outgoing notification
+  IDs prevent duplicate delivery attempts after a successful recorded send.
+- A restart during active execution or a failed/interrupted iMessage send can leave
+  an `uncertain` outcome. Echo does not repeat those external actions automatically.
+  Exactly-once external effects and delivery cannot be guaranteed.
+- Recent task context, bounded completed-task summaries, and explicitly saved,
+  source-dated memories help follow-ups.
+  Keyword retrieval is local and free. Task/chat records are separate from curated
+  memory; `forget` does not erase those records.
+- Limits bound model rounds, tool calls, tokens, and execution time. Optional dollar
+  limits require verified model prices in your private configuration.
+
+Read [the always-on guide](docs/always-on.md) for message commands, approval rules,
+cost settings, persistence, and the current limitations.
 
 **Both Mac users must remain logged in.** Fast User Switching and display lock
 are fine. Logging either user out stops its part. After reboot, log into both
@@ -184,7 +196,7 @@ local logs and retries later; never force-pushes.
 
 ```text
 echo/
-  agent/       # OpenAI response generation and authenticated agent inbox
+  agent/       # coordinator, tasks/outbox, memory, budgets and agent inbox
   messaging/   # imsg validation, durable bridge, optional BlueBubbles transport
   tools/       # MCP client, local tool server, detached Codex jobs
   runtime/     # configuration, queue, setup, launchd, updates and diagnostics
@@ -193,7 +205,7 @@ scripts/       # all double-click commands
   Repair Echo.command
   Diagnose Echo.command
 tests/         # offline unit and local protocol tests
-docs/          # migration notes
+docs/          # always-on operation and migration notes
 pyproject.toml
 requirements.txt
 README.md
@@ -203,7 +215,8 @@ Three small root Python files (`run_echo.py`, `service.py`, `update_bot.py`) rem
 as compatibility launchers so an existing installation can update itself without
 breaking. Their implementation lives in `echo/runtime/`.
 
-To change agent behavior, edit `echo/agent/processor.py`. To add an MCP connection,
+The split service uses `echo/agent/coordinator.py`; `processor.py` retains the
+simple standalone/legacy response entry point. To add an MCP connection,
 edit your main user's `mcp.json`; no code or Echo-login change is required. To add a
 new built-in tool, register it in `echo/tools/mcp_server.py`.
 
@@ -216,7 +229,8 @@ new built-in tool, register it in `echo/tools/mcp_server.py`.
 Tests use real SQLite, loopback HTTP, and MCP transports with fake model, messaging
 and Codex execution. They incur no API charges and send no iMessages. They cover
 authentication, sender filtering, idempotency, offline queuing, crash recovery,
-unknown send outcomes, MCP authentication, idle behavior and legacy startup.
+unknown send outcomes, MCP authentication, idle behavior, task lifecycle, memory,
+notification delivery, budgets, and legacy startup.
 
 To test just a conversational response (uses the API, never sends an iMessage):
 

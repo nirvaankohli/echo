@@ -133,6 +133,22 @@ def run_worker(job_id, executable, task):
         data.update(status='failed', error=type(exc).__name__)
     data['finished_at'] = time.time()
     save(path, data)
+    notify_completion(job_id)
+
+
+def notify_completion(job_id):
+    """Best-effort wake-up; durable job state and active-job polling are the fallback."""
+    from urllib.request import Request, ProxyHandler, build_opener
+    try:
+        state = Path(os.environ.get('ECHO_STATE_DIR', '~/Library/Application Support/Echo')).expanduser()
+        config = json.loads((state / 'settings.json').read_text())
+        request = Request(f"http://127.0.0.1:{int(config['port'])}/v2/events/codex",
+                          data=json.dumps({'job_id': job_id}).encode(),
+                          headers={'Authorization': 'Bearer ' + config['token'], 'Content-Type': 'application/json'})
+        with build_opener(ProxyHandler({})).open(request, timeout=2):
+            pass
+    except Exception:
+        pass  # Main login may be offline; its saved job watcher will reconcile later.
 
 
 if __name__ == '__main__':

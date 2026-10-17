@@ -24,12 +24,16 @@ def show():
             response = session.get(f"http://127.0.0.1:{config['port']}/v1/health",
                                    headers={'Authorization': 'Bearer ' + config['token']}, timeout=3)
             response.raise_for_status()
-            print('Agent reachable; message counts:', response.json()['queue'])
+            print('Agent reachable; legacy message counts:', response.json()['queue'])
+            print('Tasks and notifications:', response.json().get('tasks', 'Agent update required'))
     except (requests.RequestException, ValueError, KeyError):
         print('Agent unreachable or pairing rejected. Pending messages will wait.')
     path = state_dir() / 'bridge.sqlite3'
     if path.exists():
         print('Bridge message counts:', Queue(path).counts())
+    delivery = state_dir() / 'deliveries.sqlite3'
+    if delivery.exists():
+        print('Notification delivery counts:', Queue(delivery).counts())
     mcp = state_dir() / 'mcp.json'
     if mcp.exists():
         enabled = [name for name, value in json.loads(mcp.read_text())['servers'].items()
