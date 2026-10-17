@@ -1,5 +1,5 @@
 #!/bin/zsh
-cd -- "${0:A:h}" || exit 1
+cd -- "${0:A:h:h}" || exit 1
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [[ ! -x .venv/bin/python ]]; then
   python3 -c 'import sys; assert sys.version_info >= (3,11)' || {

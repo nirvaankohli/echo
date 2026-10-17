@@ -21,13 +21,14 @@ where it is; don't copy its `.venv` or secrets to another user. This change keep
 the old background launchers working until you run setup.
 
 1. **On your main Mac login:** update this repository (`git pull origin main`)
-   and double-click **Setup Echo.command**. Choose **1 — Main login: set up agent**.
+   and open the **scripts** folder, then double-click **Setup Echo.command**.
+   Choose **1 — Main login: set up agent**.
    Enter your OpenAI API key if prompted (hidden input), your phone's sender
    address, and the Echo macOS short username (normally `echo`). The wizard creates
    the Python environment if needed, installs dependencies, creates a pairing file
    readable by that named user, and installs the agent and updater.
 2. **Switch to the Echo Mac login without logging out of the main login.** Update
-   its existing repository and open **Setup Echo.command** there. Choose
+   its existing repository and open **scripts → Setup Echo.command** there. Choose
    **2 — Echo login: set up Messages bridge**. Enter your main Mac login's short
    username. It finds a pairing file created by that user, checks
    the main agent, and replaces the old background bot. No OpenAI key is needed
@@ -187,10 +188,12 @@ echo/
   messaging/   # imsg validation, durable bridge, optional BlueBubbles transport
   tools/       # MCP client, local tool server, detached Codex jobs
   runtime/     # configuration, queue, setup, launchd, updates and diagnostics
-scripts/       # repair/diagnostic double-click shortcuts
+scripts/       # all double-click commands
+  Setup Echo.command
+  Repair Echo.command
+  Diagnose Echo.command
 tests/         # offline unit and local protocol tests
 docs/          # migration notes
-Setup Echo.command
 pyproject.toml
 requirements.txt
 README.md

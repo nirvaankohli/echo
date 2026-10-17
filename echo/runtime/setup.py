@@ -92,7 +92,7 @@ def setup_agent():
             'header_env': {'Authorization': 'ECHO_WORKER_AUTH'}}}})
     install('agent')
     print(f'Agent installed. Pairing saved for {username}: {pairing.name}')
-    print('Now switch to the Echo login, open Setup Echo.command there, and choose Messages bridge.')
+    print('Now switch to the Echo login, open scripts/Setup Echo.command there, and choose Messages bridge.')
 
 
 def setup_bridge():

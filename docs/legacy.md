@@ -14,7 +14,7 @@ users or copy a virtual environment between them.
 The old `agent/` and `messaging/` import paths moved to `echo.agent` and
 `echo.messaging`. External scripts importing these internals must update their
 imports. `imsg_main.py` was retired; use `run_echo.py` for a legacy foreground run.
-The old repair and diagnose shortcuts moved to `scripts/`; the root setup menu
+All double-click shortcuts live in `scripts/`; its `Setup Echo.command` menu
 also exposes them. `Enable Codex.command` was replaced by setup option 3.
 
 ## Optional BlueBubbles transport
