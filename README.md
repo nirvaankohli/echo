@@ -353,3 +353,15 @@ tail -f ~/Library/Logs/Echo/events.jsonl
 Keep the existing background bot and updater installed. This feature does not
 require new plist settings; once this code is deployed, send-enabled runs record
 startup events automatically. Local logs are not automatically rotated.
+
+## Messages arrive but Echo stays silent
+
+Double-click `Diagnose Echo.command` in the Echo project folder. It reads the
+installed bot's conversation selection and tests the last five rows through the
+real message filter, with OpenAI replaced by a fake processor and sending disabled.
+It displays direction, chat-format category, and skip reasons, never message text,
+recipient addresses, or API keys. Its results distinguish rejected rows from rows
+that the filter would accept; it does not verify live watcher delivery or OpenAI.
+If diagnosis itself lacks Messages access, grant its launcher the usual permission.
+Normal bot logs now also show accepted messages, skipped-message reasons, and when
+the agent responds. These diagnostics are local, not uploaded as deployment events.

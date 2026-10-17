@@ -12,45 +12,52 @@ from agent import processor
 logger = logging.getLogger(__name__)
 
 
+def ignored(reason: str) -> bool:
+    logger.info('Message ignored: %s', reason)
+    return False
+
+
 def handle_message(event: dict, chat_id: int, *, send: bool = False,
                    executable: str = 'imsg', self_chat: bool = False) -> bool:
     """Handle only incoming text in the explicitly selected iMessage chat."""
     if not isinstance(event, dict):
-        return False
+        return ignored('invalid event')
     if (type(event.get('chat_id')) is not int or event['chat_id'] != chat_id
             or event.get('is_from_me') is not self_chat or event.get('is_reaction')):
-        return False
+        return ignored('wrong conversation, outgoing message, or reaction')
     guid = event.get('chat_guid')
     text, address = event.get('text'), event.get('sender')
     if not isinstance(guid, str):
-        return False
+        return ignored('missing chat format')
     destination = ['--chat-guid', guid]
     if self_chat and guid.startswith('any;-;'):
         # macOS can use a service-neutral GUID for a direct self-conversation.
         # Resolve its exact recipient and explicitly require iMessage when sending.
         identifier = event.get('chat_identifier')
         if not isinstance(identifier, str) or not identifier or guid != f'any;-;{identifier}':
-            return False
+            return ignored('invalid service-neutral recipient')
         destination = ['--to', identifier]
     elif not guid.startswith('iMessage;'):
-        return False
+        return ignored('unsupported chat format')
     if self_chat:
         # Accept only outgoing commands; incoming self-chat copies are ignored.
         if ';+;' in guid or event.get('is_group') is True:
-            return False
+            return ignored('group in self-chat mode')
         if not isinstance(text, str) or not text.startswith('/echo '):
-            return False
+            return ignored('missing /echo command')
         text = text[len('/echo '):].strip()
         address = 'self'
     if (not isinstance(text, str) or not text.replace('\ufffc', '').strip()
             or not isinstance(address, str) or not address.strip()):
-        return False
+        return ignored('empty text or sender')
 
+    logger.info('Incoming text accepted; requesting agent response')
     response = processor.process_message(text, address)
+    logger.info('Agent returned a response')
     if not isinstance(response, str):
         raise TypeError('Processor must return a string')
     if not response.strip():
-        return False
+        return ignored('empty agent response')
     if self_chat and response.startswith('/echo '):
         raise ValueError('Processor reply cannot start with /echo in self-chat mode')
     if not send:
@@ -93,7 +100,7 @@ def watch_messages(chat_id: int, *, send: bool = False, executable: str = 'imsg'
         deployment_log.record('watcher_starting', commit=revision, pid=os.getpid())
     command = [executable, 'watch', '--chat-id', str(chat_id), '--debounce', '500ms', '--json']
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as watcher:
-        logger.info('Watcher started in %s mode; Ctrl+C stops it', 'send' if send else 'dry-run')
+        logger.info('Watcher started for chat ID %d in %s mode', chat_id, 'send' if send else 'dry-run')
         try:
             if revision:
                 # imsg emits no ready event. Detect immediate startup failures first.
