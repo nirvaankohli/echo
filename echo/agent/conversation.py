@@ -101,6 +101,18 @@ class Conversation:
         self.coordinator = coordinator
         self.store, self.memory = coordinator.store, coordinator.memory
 
+    def import_legacy(self, queue):
+        """Keep recent pre-v2 context without replaying work or assuming replies were delivered."""
+        with queue.db() as db:
+            rows = db.execute("SELECT * FROM messages WHERE status='completed' ORDER BY created DESC LIMIT 40").fetchall()
+        with self.store.db() as db:
+            for row in rows:
+                data = json.loads(row['payload'])
+                db.execute('INSERT OR IGNORE INTO tasks(id,sender,text,status,created,updated,result) VALUES (?,?,?,?,?,?,?)',
+                           (row['id'], data['sender'], data['text'], 'completed', row['created'], row['created'], row['result']))
+                db.execute('INSERT OR IGNORE INTO conversation_messages VALUES (?,?,?,?,?)',
+                           ('user:' + row['id'], data['sender'].casefold(), 'user', data['text'], row['created']))
+
     def recover(self):
         # Routing has no external effects. Applying its decision and marking it handled is atomic.
         with self.store.db() as db:

@@ -110,6 +110,20 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(messages, [{'role': 'user', 'content': 'Earlier request'},
                                     {'role': 'assistant', 'content': 'Earlier exact answer'}])
 
+    def test_legacy_service_context_is_imported_without_resending_replies(self):
+        queue = Queue(self.path / 'legacy.db')
+        queue.put('old', {'sender': 'owner', 'text': 'Help me with biology'})
+        queue.update('old', 'completed', result='Earlier biology answer')
+        queue.put('pending', {'sender': 'owner', 'text': 'Still waiting'})
+        for _ in range(2):
+            self.chat.import_legacy(queue)
+        self.assertIsNone(self.store.claim())
+        self.assertEqual(self.store.outbox(), [])
+        self.assertEqual(self.store.events(), [])
+        self.assertIsNone(self.store.task('pending'))
+        self.assertEqual(self.store.task('old')['result'], 'Earlier biology answer')
+        self.assertEqual(history(self.store, 'owner', 'new'), [{'role': 'user', 'content': 'Help me with biology'}])
+
     def test_rapid_messages_are_ordered_and_not_lost_on_restart(self):
         self.chat.receive('a', 'owner', 'First')
         self.chat.receive('b', 'owner', 'Second')

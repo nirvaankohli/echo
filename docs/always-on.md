@@ -157,6 +157,10 @@ Full local chat records include incoming text and replies confirmed sent by the
 bridge. They survive restart. Existing tasks and confirmed outgoing replies are
 migrated automatically. Pending or uncertain replies are supplied separately as
 operational state; Echo should not assume you have read them.
+The last 40 completed requests from the older stateless service are also imported
+as reference context. That protocol had no delivery receipts, so its generated
+answers are retained as task results, not confirmed assistant messages. No old
+requests or replies are automatically sent again.
 
 Each model turn receives a bounded recent window (up to 40 prior messages within
 24,000 characters including the current message), preserving whole messages and

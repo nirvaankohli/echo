@@ -157,6 +157,7 @@ def run():
         tasks.recover_tasks()
         coordinator = Coordinator(tasks, Memory(state_dir() / 'memory.sqlite3'))
         conversation = Conversation(coordinator)
+        conversation.import_legacy(queue)
         conversation.recover()
         wake, stop = threading.Event(), threading.Event()
         conversation_wake = threading.Event()
