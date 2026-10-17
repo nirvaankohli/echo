@@ -1,0 +1,4 @@
+{"time": "2026-10-17T04:13:05.177712+00:00", "event": "watcher_starting", "commit": "afc743ce88ed4b074a68f417afa51da791da7dcf", "pid": 12278}
+{"time": "2026-10-17T04:13:07.218475+00:00", "event": "watcher_started", "commit": "afc743ce88ed4b074a68f417afa51da791da7dcf", "pid": 12278, "run_id": "37a79084f05c4ae3bda99353c689b866"}
+{"time": "2026-10-17T04:13:09.236953+00:00", "event": "watcher_starting", "commit": "afc743ce88ed4b074a68f417afa51da791da7dcf", "pid": 12287}
+{"time": "2026-10-17T04:13:11.268371+00:00", "event": "watcher_started", "commit": "afc743ce88ed4b074a68f417afa51da791da7dcf", "pid": 12287, "run_id": "b47a22bdba124ae09b0f99e3658a7b48"}
