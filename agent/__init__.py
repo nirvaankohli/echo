@@ -1,0 +1,1 @@
+"""Replaceable response-generation logic."""

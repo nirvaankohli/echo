@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated per-user background service configuration
+local.echo.bot.plist
+local.echo.update.plist
