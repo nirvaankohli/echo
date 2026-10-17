@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "echo-imessage"
+version = "0.2.0"
+description = "A local iMessage bridge and event-driven personal agent"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[project.scripts]
+echo-bot = "echo.__main__:main"
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["echo*"]

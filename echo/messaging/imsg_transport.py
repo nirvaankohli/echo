@@ -4,10 +4,10 @@ import json
 import logging
 import os
 
-import deployment_log
+from echo.runtime import deployment_log
 import subprocess
 
-from agent import processor
+from echo.agent import processor
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,7 @@ def ignored(reason: str) -> bool:
     return False
 
 
-def handle_message(event: dict, chat_id: int, *, send: bool = False,
-                   executable: str = 'imsg', self_chat: bool = False) -> bool:
+def parse_message(event: dict, chat_id: int, *, self_chat: bool = False):
     """Handle only incoming text in the explicitly selected iMessage chat."""
     if not isinstance(event, dict):
         return ignored('invalid event')
@@ -53,6 +52,16 @@ def handle_message(event: dict, chat_id: int, *, send: bool = False,
             or not isinstance(address, str) or not address.strip()):
         return ignored('empty text or sender')
 
+    return text, address, destination
+
+
+def handle_message(event: dict, chat_id: int, *, send: bool = False,
+                   executable: str = 'imsg', self_chat: bool = False) -> bool:
+    parsed = parse_message(event, chat_id, self_chat=self_chat)
+    if not parsed:
+        return False
+    text, address, destination = parsed
+    guid = event['chat_guid']
     logger.info('Incoming text accepted; requesting agent response')
     response = processor.process_message(
         text, address, allow_tools=send and not self_chat
@@ -93,7 +102,7 @@ def send_reply(response: str, destination: list[str], executable: str) -> None:
 
 
 def watch_messages(chat_id: int, *, send: bool = False, executable: str = 'imsg',
-                   self_chat: bool = False) -> None:
+                   self_chat: bool = False, on_message=None, since_rowid=None) -> None:
     """Watch new messages only; stop on errors without retrying uncertain sends."""
     revision = None
     if send:
@@ -104,6 +113,8 @@ def watch_messages(chat_id: int, *, send: bool = False, executable: str = 'imsg'
     if revision:
         deployment_log.record('watcher_starting', commit=revision, pid=os.getpid())
     command = [executable, 'watch', '--chat-id', str(chat_id), '--debounce', '500ms', '--json']
+    if since_rowid is not None:
+        command += ['--since-rowid', str(since_rowid)]
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as watcher:
         logger.info('Watcher started for chat ID %d in %s mode', chat_id, 'send' if send else 'dry-run')
         try:
@@ -119,7 +130,10 @@ def watch_messages(chat_id: int, *, send: bool = False, executable: str = 'imsg'
                 if not line.strip():
                     continue
                 event = json.loads(line)
-                handle_message(event, chat_id, send=send, executable=executable, self_chat=self_chat)
+                if on_message is not None:
+                    on_message(event)
+                else:
+                    handle_message(event, chat_id, send=send, executable=executable, self_chat=self_chat)
             if watcher.wait() != 0:
                 raise RuntimeError('imsg watcher failed; see its diagnostic above')
         finally:

@@ -14,9 +14,9 @@ from unittest.mock import Mock, patch
 
 from mcp import Client, StdioServerParameters
 
-from agent import codex_jobs as jobs
-from agent.processor import process_message
-from agent.tools import enabled_for, respond
+from echo.tools import codex_jobs as jobs
+from echo.agent.processor import process_message
+from echo.tools.client import enabled_for, respond
 
 
 class JobTests(unittest.TestCase):
@@ -38,6 +38,8 @@ Path(sys.argv[sys.argv.index("--output-last-message") + 1]).write_text("Finished
 ''')
         self.fake.chmod(0o700)
         self.env = patch.dict(os.environ, {
+            'ECHO_STATE_DIR': str(self.root / 'state'),
+            'ECHO_MCP_CONFIG': str(self.root / 'test-mcp.json'),
             'PATH': str(self.root) + os.pathsep + os.environ['PATH'],
             'ECHO_JOBS_DIR': str(self.root / 'jobs'),
             'ECHO_CODEX_WORKSPACE': str(self.root / 'workspace'),
@@ -71,7 +73,7 @@ Path(sys.argv[sys.argv.index("--output-last-message") + 1]).write_text("Finished
     def test_rejects_bad_ids_and_live_repository(self):
         with self.assertRaises(ValueError):
             jobs.get_job('../../secret')
-        for folder in (jobs.ROOT, jobs.ROOT.parent, jobs.ROOT / 'agent'):
+        for folder in (jobs.ROOT, jobs.ROOT.parent, jobs.ROOT / 'echo'):
             with patch.dict(os.environ, {'ECHO_CODEX_WORKSPACE': str(folder)}):
                 with self.assertRaises(ValueError):
                     jobs.start_job('change it')
@@ -96,7 +98,7 @@ Path(sys.argv[sys.argv.index("--output-last-message") + 1]).write_text("Finished
 
     def test_real_stdio_job_survives_client_exit(self):
         async def start():
-            params = StdioServerParameters(command=sys.executable, args=['-m', 'agent.mcp_server'],
+            params = StdioServerParameters(command=sys.executable, args=['-m', 'echo.tools.mcp_server'],
                                            cwd=jobs.ROOT, env=dict(os.environ))
             async with Client(params, read_timeout_seconds=10) as client:
                 listing = await client.list_tools()
@@ -130,6 +132,14 @@ Path(sys.argv[sys.argv.index("--output-last-message") + 1]).write_text("Finished
 
 
 class BridgeTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        environment = patch.dict(os.environ, {'ECHO_STATE_DIR': temporary.name,
+                                              'ECHO_MCP_CONFIG': str(Path(temporary.name) / 'mcp.json')})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_tools_require_enabled_and_exact_owner(self):
         with patch.dict(os.environ, {'ECHO_MCP_ENABLED': '1', 'ECHO_TOOL_OWNER': '+15551234567'}):
             self.assertTrue(enabled_for('+15551234567'))
@@ -138,11 +148,11 @@ class BridgeTests(unittest.TestCase):
         with patch.dict(os.environ, {'ECHO_MCP_ENABLED': '1', 'ECHO_TOOL_OWNER': ''}):
             self.assertFalse(enabled_for(''))
 
-    @patch('agent.processor.load_dotenv')
+    @patch('echo.agent.processor.load_dotenv')
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'fake', 'ECHO_MCP_ENABLED': '1',
                             'ECHO_TOOL_OWNER': 'owner'})
-    @patch('agent.processor.OpenAI')
-    @patch('agent.tools.respond')
+    @patch('echo.agent.processor.OpenAI')
+    @patch('echo.tools.client.respond')
     def test_default_and_nonowner_do_not_get_tools(self, respond_mock, factory, load):
         factory.return_value.__enter__.return_value.responses.create.return_value = Mock(
             status='completed', output_text='Hello')

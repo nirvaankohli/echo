@@ -8,9 +8,9 @@ from uuid import UUID
 
 import requests
 
-from agent.processor import process_message
-from main import create_app
-from messaging.sender import SendError, send_message
+from echo.agent.processor import process_message
+from echo.messaging.bluebubbles import create_app
+from echo.messaging.sender import SendError, send_message
 
 EVENT = {
     'type': 'new-message',
@@ -27,14 +27,14 @@ class BotTests(unittest.TestCase):
                                      'BLUEBUBBLES_SEND_METHOD': 'apple-script'}):
             self.client = create_app().test_client()
 
-    @patch('agent.processor.load_dotenv')
+    @patch('echo.agent.processor.load_dotenv')
     @patch.dict(os.environ, {'OPENAI_API_KEY': ''})
     def test_processor_requires_key(self, load):
         with self.assertRaises(ValueError):
             process_message('anything', 'someone')
 
-    @patch('messaging.sender.requests.post')
-    @patch('agent.processor.process_message', return_value='custom agent response')
+    @patch('echo.messaging.sender.requests.post')
+    @patch('echo.agent.processor.process_message', return_value='custom agent response')
     def test_full_flow_uses_processor_response_and_original_chat(self, process, post):
         post.return_value.json.return_value = {'status': 200, 'data': {}}
         response = self.client.post('/webhook', json=EVENT)
@@ -50,8 +50,8 @@ class BotTests(unittest.TestCase):
         UUID(kwargs['json']['tempGuid'])
         self.assertEqual(kwargs['timeout'], (5, 70))
 
-    @patch('messaging.sender.send_message')
-    @patch('agent.processor.process_message')
+    @patch('echo.messaging.sender.send_message')
+    @patch('echo.agent.processor.process_message')
     def test_ignored_events_do_not_process_or_send(self, process, send):
         variants = [{'isFromMe': True}, {'text': None}, {'text': ' '},
                     {'text': '\ufffc'}, {'associatedMessageType': 2000}]
@@ -69,7 +69,7 @@ class BotTests(unittest.TestCase):
         process.assert_not_called()
         send.assert_not_called()
 
-    @patch('messaging.sender.send_message')
+    @patch('echo.messaging.sender.send_message')
     def test_malformed_messages_do_not_send(self, send):
         events = [[], {}, {'type': 'new-message', 'data': None}]
         for changes in [{'isFromMe': 'false'}, {'handle': None}, {'chats': []},
@@ -83,8 +83,8 @@ class BotTests(unittest.TestCase):
         self.assertEqual(self.client.post('/webhook', data='{', content_type='application/json').status_code, 400)
         send.assert_not_called()
 
-    @patch('messaging.sender.send_message')
-    @patch('agent.processor.process_message')
+    @patch('echo.messaging.sender.send_message')
+    @patch('echo.agent.processor.process_message')
     def test_processor_failures_and_empty_response(self, process, send):
         process.side_effect = RuntimeError('agent unavailable')
         self.assertEqual(self.client.post('/webhook', json=EVENT).status_code, 500)
@@ -95,15 +95,15 @@ class BotTests(unittest.TestCase):
         self.assertEqual(self.client.post('/webhook', json=EVENT).json['status'], 'ignored')
         send.assert_not_called()
 
-    @patch('agent.processor.process_message', return_value='test response')
-    @patch('messaging.sender.requests.post', side_effect=requests.Timeout('secret URL'))
+    @patch('echo.agent.processor.process_message', return_value='test response')
+    @patch('echo.messaging.sender.requests.post', side_effect=requests.Timeout('secret URL'))
     def test_send_failure_is_reported_without_credentials(self, post, process):
-        with self.assertLogs('messaging.sender', level='ERROR') as logs:
+        with self.assertLogs('echo.messaging.sender', level='ERROR') as logs:
             result = self.client.post('/webhook', json=EVENT)
         self.assertEqual(result.status_code, 502)
         self.assertNotIn('secret URL', ''.join(logs.output))
 
-    @patch('messaging.sender.requests.post')
+    @patch('echo.messaging.sender.requests.post')
     def test_http_api_and_invalid_json_failures(self, post):
         http_error = requests.HTTPError(response=Mock(status_code=401))
         for status_error, body, json_error in [

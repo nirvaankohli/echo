@@ -8,8 +8,8 @@ import shutil
 import subprocess
 from unittest.mock import patch
 
-from messaging.imsg_transport import handle_message
-from run_echo import ChatSelectionError, select_chat
+from echo.messaging.imsg_transport import handle_message
+from echo.runtime.run_echo import ChatSelectionError, select_chat
 
 
 def main():
@@ -19,8 +19,12 @@ def main():
     args = config['ProgramArguments']
     imsg = shutil.which('imsg') or '/opt/homebrew/bin/imsg'
     self_chat = '--self-chat' in args
-    chat_id = (int(args[args.index('--chat-id') + 1]) if '--chat-id' in args else
-               select_chat(imsg, args[args.index('--to') + 1], self_chat))
+    if args[-3:] == ['-m', 'echo', 'bridge']:
+        from echo.runtime.config import settings
+        chat_id = select_chat(imsg, settings()['owner'], False)
+    else:
+        chat_id = (int(args[args.index('--chat-id') + 1]) if '--chat-id' in args else
+                   select_chat(imsg, args[args.index('--to') + 1], self_chat))
     print(f'Checking the installed bot conversation: chat ID {chat_id}', flush=True)
     result = subprocess.run([imsg, 'history', '--chat-id', str(chat_id), '--limit', '5', '--json'],
                             capture_output=True, text=True, timeout=20)
@@ -35,7 +39,7 @@ def main():
         direction = 'outgoing' if event.get('is_from_me') is True else 'incoming/unknown'
         print(f'Row {index}: {direction}; chat format: {kind}', flush=True)
         # Exercise the real filter without calling OpenAI or sending a reply.
-        with patch('agent.processor.process_message', return_value='diagnostic only'):
+        with patch('echo.agent.processor.process_message', return_value='diagnostic only'):
             accepted = handle_message(event, chat_id, send=False, self_chat=self_chat)
         print('RESULT: would process' if accepted else 'RESULT: skipped (reason above)', flush=True)
     print('\nTake a photo of these results. No API key or message text is included.')

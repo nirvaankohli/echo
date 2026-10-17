@@ -1,461 +1,224 @@
-# Echo — an always-available iMessage assistant
+# Echo
 
-## Repair background Messages access
-
-If the bot repeatedly exits with “Messages access failed”, pull the latest code
-and **double-click `Repair Echo.command` in Finder**, inside the Echo Mac login.
-It opens Full Disk Access settings and selects the actual Python executable in
-Finder. Add it with the + button and enable its switch, then return to the repair
-window and press Enter. The tool migrates older keep-awake wrappers to a direct
-Python launcher, preserves your recipient/settings, restarts Echo, and checks
-for a fresh startup acknowledgement. Sleep prevention runs as a Python child.
-
-macOS requires you to authorize Full Disk Access yourself; the tool cannot grant
-it. If startup still fails, it opens the error log and selects imsg for the next
-permission check. Terminal permissions alone may not cover background jobs.
-After startup succeeds, send a phone message to verify actual delivery and any
-separate Messages Automation permission. The repair tool doesn't read or copy
-chat contents or change your API key.
-
-
-Echo runs in its own macOS login, signed into Messages with a separate Apple
-Account. Your iPhone messages that account's email. Only one selected conversation
-is watched. No BlueBubbles, public HTTP server, or port forwarding is required for
-the recommended direct Mac mode.
-
-```mermaid
-flowchart LR
-    Phone[iPhone] --> Messages[Messages in Echo Mac login]
-    Messages --> Watch[imsg watcher]
-    Watch --> Agent[agent/processor.py]
-    Agent --> OpenAI[OpenAI Responses API]
-    OpenAI --> Agent
-    Agent --> Send[imsg sender]
-    Send --> Messages
-    Messages --> Phone
-    Launch[macOS LaunchAgent] -. starts and restarts .-> Watch
-```
-
-`agent/processor.py` owns all reply generation. It calls OpenAI using
-`gpt-4.1-mini` by default, configurable with `OPENAI_MODEL`. Each message is
-independent: no conversation memory or scheduled tasks. Optional MCP tools let
-Echo delegate coding work to Codex and fetch job results (see below).
-The message text and any enabled tool results are sent to OpenAI; the sender identifier is not. Requests set
-`store=False` (this is not a promise of zero provider retention). API usage is
-billed separately from a ChatGPT subscription. Dry runs still call OpenAI but cannot run tools.
-
-## Codex through MCP
-
-This first version starts **new Codex coding jobs** on Echo's Mac. It does not
-control existing desktop chats or click around other apps. The connection is:
+An event-driven personal agent with iMessage on a separate macOS login.
 
 ```text
-iMessage → processor → OpenAI tool calls → local MCP server → Codex CLI
-                                      ← job status / result ←
+Your iPhone ↔ Echo login: Messages bridge ↔ Main login: agent ↔ OpenAI
+                                                   ↕
+                                            Your MCP connections
+                                                   ↕
+                                     Optional Codex worker on Echo login
 ```
 
-In the **Echo macOS login**, pull the update, install requirements with the
-project's virtual environment, and **double-click `Enable Codex.command`**.
-Use Python 3.11 or newer (required by the MCP dependency). Install Codex CLI
-first if missing, following the [official CLI setup](https://learn.chatgpt.com/docs/cli).
-The setup signs into Codex if needed, asks which project folder it may edit,
-sets the allowed iMessage sender, and restarts an installed Echo service.
-Your main Mac user's Codex sign-in does not sign in the separate Echo user.
+The bridge reads and sends iMessages. Your main login owns the OpenAI key, agent
+logic, and MCP connections. The two processes communicate over authenticated
+loopback HTTP on the same Mac. No public port or cloud server is needed.
 
-The default folder is `~/EchoWorkspace`. Choose a separate checkout of an existing
-project if you want Codex to work on that project; the running Echo checkout and
-its parent folders are rejected. Setup preserves existing `.env` values.
-Tools remain disabled until setup runs or you set these values yourself:
+## Switch your existing installation
 
-```dotenv
-ECHO_MCP_ENABLED=1
-ECHO_TOOL_OWNER=+19089691989
-ECHO_CODEX_WORKSPACE=/Users/echo/EchoWorkspace
+Use a separate checkout inside each user's home. Keep the existing Echo checkout
+where it is; don't copy its `.venv` or secrets to another user. This change keeps
+the old background launchers working until you run setup.
+
+1. **On your main Mac login:** update this repository (`git pull origin main`)
+   and double-click **Setup Echo.command**. Choose **1 — Main login: set up agent**.
+   Enter your OpenAI API key if prompted (hidden input), your phone's sender
+   address, and the Echo macOS short username (normally `echo`). The wizard creates
+   the Python environment if needed, installs dependencies, creates a pairing file
+   readable by that named user, and installs the agent and updater.
+2. **Switch to the Echo Mac login without logging out of the main login.** Update
+   its existing repository and open **Setup Echo.command** there. Choose
+   **2 — Echo login: set up Messages bridge**. Enter your main Mac login's short
+   username. It finds a pairing file created by that user, checks
+   the main agent, and replaces the old background bot. No OpenAI key is needed
+   in this login. Existing Messages Full Disk Access and Automation permissions
+   still apply; choose **4 — Repair Messages access** if necessary.
+3. Choose **5 — Show status** on both logins. The agent must be reachable and
+   `local.echo.bot` should show `state = running`. On Echo, send a **new** message
+   from your phone to the bot's Apple Account email. You should receive the
+   agent's answer. First installation starts with new messages, not old history.
+
+If the updater is already working, the changes should arrive at its next
+five-minute check. A dirty checkout is intentionally not auto-updated. The setup
+file does not pull changes itself. Python **3.11+**, Git, and `imsg` in the Echo
+login are required. Install `imsg` with `brew install steipete/tap/imsg` if missing.
+Setup preserves the OpenAI model selection from your existing configuration.
+
+The pairing file in `/Users/Shared/Echo-pairing-*.json` contains a secret and has
+an ACL granting read access only to the designated Echo user in addition to its
+creator. After successful pairing, its creator can delete it; both users already
+have private copies of the necessary settings. Do not commit or send it in chat.
+
+## Add MCP connections from your main login
+
+Choose **6 — Open MCP settings** in the setup menu. Configuration lives at:
+
+```text
+~/Library/Application Support/Echo/mcp.json
 ```
 
-Then text Echo:
+It supports multiple local **stdio** servers and remote **Streamable HTTP**
+servers. For example:
 
-- “Ask Codex to create a hello.txt file saying hello.”
-- “What is the status of my latest Codex job?”
-- “Show the result for job [ID].”
+```json
+{
+  "servers": {
+    "my_local_tool": {
+      "command": "/absolute/path/to/server",
+      "args": ["--stdio"],
+      "cwd": "/absolute/path/to/project"
+    },
+    "my_remote_tool": {
+      "url": "https://your-server.example/mcp",
+      "header_env": {"Authorization": "MY_MCP_AUTH"}
+    },
+    "echo_codex": {
+      "enabled": false,
+      "url": "http://127.0.0.1:8878/mcp",
+      "header_env": {"Authorization": "ECHO_WORKER_AUTH"}
+    }
+  }
+}
+```
 
-Echo returns a job ID quickly; Codex continues after that message finishes.
-Ask for status again to get the result—this version does not send proactive
-completion notifications. Each message has no conversation memory, but the job
-list persists. One job runs at a time to avoid conflicting edits. Jobs time out
-after 30 minutes. Codex uses its own login and default model, the `workspace-write`
-sandbox, and no interactive approvals. Actions requiring more permission fail.
-This controls writes, not a guarantee that all other local files are unreadable.
-User Codex configuration is ignored for these runs, so unrelated configured MCP
-servers are not automatically inherited. The Echo OpenAI key is not passed to Codex.
+These are configuration examples, not installed Gmail integrations. Use your
+chosen provider's actual command or URL and complete its authorization flow in
+**your main login**. A stdio server can manage its own OAuth login. For HTTP
+servers, Echo accepts headers supplied from environment variables; it does not
+implement a generic OAuth browser flow or token refresh. A refreshing credential
+provider/server is needed for unattended expiring tokens. Connections configured
+inside ChatGPT or the Codex app are not automatically imported.
 
-Only the exact configured owner in a direct incoming iMessage may use tools.
-Dry runs, processor CLI tests without `--tools`, self-chat mode, and the
-unauthenticated BlueBubbles webhook have tools disabled. To test tools directly
-without sending iMessages (this **can start real jobs**):
+Store header values (including `Bearer ` when required) in the private file
+`~/Library/Application Support/Echo/.env`, not in Git. Trusted local MCP commands
+run with your main user's permissions. Remote HTTP requires HTTPS except for
+loopback addresses. Only the configured phone sender can trigger tools; email,
+project files and tool results are treated as data, not user authorization.
+
+MCP configuration is read for each message. Unavailable servers are logged and
+their tools omitted so ordinary chat can continue. Set `"required": true` on a
+server if its failure should stop processing instead. After changing secret environment
+values, choose **7 — Restart this login** on your main login. To check connections without invoking
+any tools, run from the repository:
 
 ```sh
-.venv/bin/python -m agent.processor "List my Codex jobs" --sender +19089691989 --tools
+.venv/bin/python -m echo mcp-check
 ```
 
-Job state, results, and Codex diagnostics stay in
-`~/Library/Application Support/Echo/jobs/`, outside Git. They may contain project
-content; they are not published with deployment logs or automatically rotated.
-Completed results sent to Echo's OpenAI model are limited to the last 12 KB.
-Running jobs normally survive Echo/MCP restarts. Logout, reboot, or worker crashes
-can interrupt them; interrupted jobs are shown as interrupted and never replayed.
-If a tool call loses its connection, check the job list before requesting the same
-work again. Files changed by Codex stay in the configured workspace for review.
+### Optional: keep Codex work on the Echo login
 
-The MCP server is stdio-only, with no network port. Any local MCP client can
-launch it using the absolute virtual-environment Python path, arguments
-`["-m", "agent.mcp_server"]`, and this repository as its working directory.
-Local clients have the Mac user's authority; the sender check belongs to Echo's
-message processor, not to the MCP protocol. Its three tools are `codex_start`,
-`codex_status`, and `codex_jobs`. Add future tools in `agent/mcp_server.py`;
-`agent/tools.py` discovers their schemas automatically. Response wording remains
-in `agent/processor.py`.
+On Echo, open setup and choose **3 — Set up optional Codex worker**. Install Codex
+CLI first if missing. Setup signs into Codex in that login if necessary and asks
+for a working folder separate from the running Echo checkout. Then on your main
+login choose **6** and change `echo_codex.enabled` to `true`.
 
-Implementation follows [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode)
-and [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling),
-using the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk).
+Text “Ask Codex to create a hello.txt file saying hello.” Then text “What is the
+status of my latest Codex job?” Codex works in the background and returns results
+when asked. It uses its own login, one job at a time, a 30-minute timeout and the
+workspace-write sandbox. It does not control existing Codex desktop chats or
+send proactive completion notifications. Existing jobs survive an MCP restart;
+uncertain jobs are not automatically repeated.
 
-## What happens when you switch users?
+## Always running, without an idle model loop
 
-| Mac state | Echo behavior |
-| --- | --- |
-| Switch to your main login | Echo's processes keep running in its logged-in session |
-| Lock screen or turn display off | Can keep running if the computer remains awake |
-| Quit the terminal after activating LaunchAgent | Background service remains running |
-| Bot exits | LaunchAgent restarts it, with a 30-second launch throttle |
-| Log Echo out | Bot stops until Echo logs in again |
-| Restart / power loss | Log into Echo again to start its LaunchAgent |
-| Sleep / closed laptop lid / no internet | Cannot respond reliably until awake and connected |
+- LaunchAgents start each process when its Mac user logs in and restart failures.
+- The bridge uses `imsg watch` filesystem notifications, not continuous history polling.
+- Incoming messages are saved in SQLite before forwarding; model work runs one
+  message at a time. Idle workers wait on events. There are **no idle OpenAI calls**.
+- The bridge polls only while messages are pending: normally every two seconds,
+  or every fifteen seconds after a connection failure. An offline main agent
+  leaves messages queued. Queued work resumes when it returns.
+- Stable message GUIDs make HTTP retries reuse existing work and completed replies.
+  The bridge saves its Messages row cursor and resumes it after restart using
+  `imsg watch --since-rowid` (verified against the installed imsg CLI).
+- A restart during agent processing marks that request `uncertain`. A failed or
+  interrupted iMessage send is also not automatically repeated. Inspect status
+  before resending a task; exactly-once external tool effects/delivery cannot be
+  guaranteed. There is no automatic retry for failed model/tool actions.
+- Tools are discovered when processing a message. The response loop has an
+  eight-round limit; model and tool calls have timeouts. No periodic LLM heartbeat.
+- Replies currently have no conversational memory. Durable queues and Codex job
+  results are operational state, not a chat history supplied to the model.
 
-Use **Fast User Switching**, not Log Out. Keep the Mac plugged in, online, and
-configured to prevent automatic system sleep when the display is off. Display
-sleep is fine. Do not rely on a closed laptop lid keeping the Mac awake.
-Apple documents that switched-out processes continue running, but Messages
-permissions and delivery must be tested in your actual switched-out session.
+**Both Mac users must remain logged in.** Fast User Switching and display lock
+are fine. Logging either user out stops its part. After reboot, log into both
+again. Keep the Mac powered, online, and awake; the bridge prevents idle sleep,
+which does not guarantee operation with a closed laptop lid. This is not a
+system daemon that can run Messages before any user logs in.
 
-## Setup in the Echo macOS login
+## Commands and status
 
-1. Create a separate Standard macOS user called Echo. In that login, sign into
-   Messages with the separate Apple Account. From your iPhone, text Echo's email
-   and manually reply from the Mac to establish a working conversation.
-2. Copy this project into that user's home, for example `~/echo`. Transfer the
-   source files (including the hidden `.env.example`), not `.venv` or a real `.env`.
-   Create a fresh environment there:
+Run commands from the repository with its own environment:
 
 ```sh
-cd ~/echo
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-cp .env.example .env
-chmod 600 .env
+.venv/bin/python -m echo setup
+.venv/bin/python -m echo status
+.venv/bin/python -m echo restart
+.venv/bin/python -m echo mcp-check
+.venv/bin/python -m echo update
 ```
 
-3. Edit `.env` locally and set `OPENAI_API_KEY` to your OpenAI API key. Do not paste
-   it into chat or commit it. BlueBubbles settings are unused in direct mode.
-4. Install `imsg` if needed: `brew install steipete/tap/imsg`. It is already
-   installed on the original Mac. In this login, give your terminal Full Disk
-   Access, reopen it, and allow control of Messages when prompted.
-5. Test the processor alone (uses the API but sends no iMessages):
+The `agent`, `bridge`, and `codex` commands run those processes in the foreground
+for debugging. Don't start a duplicate of an installed process; singleton locks
+reject it. `repair` and `diagnose` inspect Messages permissions/filtering.
 
-```sh
-.venv/bin/python -m agent.processor "Tell me a short joke"
+State and secrets live under `~/Library/Application Support/Echo/`, independently
+in each login. Logs live under `~/Library/Logs/Echo/`: `agent.log`, `bridge.log`,
+`codex.log`, `update.log`, and the lifecycle journal `events.jsonl`. The status
+command shows counts without displaying message contents or tokens. A `failed`
+or `uncertain` item needs inspection and is not silently retried. Local message
+queues, Codex outputs, and logs are not automatically rotated; they may contain
+private data and must stay out of Git.
+
+Both installed checkouts check `origin/main` every five minutes, validate the new
+revision in isolation, install dependencies, and restart their own process.
+Version 1 of the local message interface is kept compatible across rolling
+updates. Use separate deployment checkouts: local changes intentionally block
+updates. Lifecycle metadata is pushed to the **deployment-logs** branch if that
+login has noninteractive GitHub write access. Message text, queues, MCP results,
+and credentials are never included in that journal. An upload failure retains
+local logs and retries later; never force-pushes.
+
+## Repository layout
+
+```text
+echo/
+  agent/       # OpenAI response generation and authenticated agent inbox
+  messaging/   # imsg validation, durable bridge, optional BlueBubbles transport
+  tools/       # MCP client, local tool server, detached Codex jobs
+  runtime/     # configuration, queue, setup, launchd, updates and diagnostics
+scripts/       # repair/diagnostic double-click shortcuts
+tests/         # offline unit and local protocol tests
+docs/          # migration notes
+Setup Echo.command
+pyproject.toml
+requirements.txt
+README.md
 ```
 
-6. Start the foreground bot, replacing the example number with your own iPhone's
-   iMessage number or email exactly as listed by `imsg chats --json`:
+Three small root Python files (`run_echo.py`, `service.py`, `update_bot.py`) remain
+as compatibility launchers so an existing installation can update itself without
+breaking. Their implementation lives in `echo/runtime/`.
 
-```sh
-.venv/bin/python run_echo.py --send --to +15551234567
-```
+To change agent behavior, edit `echo/agent/processor.py`. To add an MCP connection,
+edit your main user's `mcp.json`; no code or Echo-login change is required. To add a
+new built-in tool, register it in `echo/tools/mcp_server.py`.
 
-Send a new message from the iPhone to **Echo's email**. Only the selected incoming
-conversation can trigger replies. Stop this foreground bot with Ctrl+C before
-activating the background service. Do not run two copies.
-
-## Activate background operation
-
-After copying the latest source to Echo's login, configuring `.env`, installing
-requirements, and passing the foreground test, a single command installs both
-services and prevents idle system sleep:
-
-```sh
-.venv/bin/python service.py --to +19089691989 --auto-update --keep-awake --install
-```
-
-This command uses the configured owner’s iPhone number; replace `--to` if deploying for someone else.
-Run this as the Echo macOS user, without sudo. Stop any foreground bot first.
-The installer replaces an existing loaded Echo service. `--keep-awake` uses
-`caffeinate -i` only while the bot runs; it allows display sleep and does not
-prevent manually requested sleep or guarantee operation with a closed lid.
-Without `--install`, the script only generates configuration files. Automatic
-updates need a clean Git clone with published code on `origin/main`. A local
-copy with uncommitted source can run the bot but cannot automatically update.
-The installer loading successfully does not confirm Messages permissions or
-remote delivery; test from the phone after switching to your main Mac login.
-
-
-Run these in the **Echo login**, from the copied project directory, after the
-foreground test succeeds. The generator creates a plist with this user's absolute
-paths and the selected recipient. It does not start anything by itself.
-
-```sh
-.venv/bin/python service.py --to +15551234567
-mkdir -p ~/Library/LaunchAgents
-cp local.echo.bot.plist ~/Library/LaunchAgents/
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.bot.plist
-```
-
-The LaunchAgent starts at login and restarts after exit. It runs in Echo's GUI
-session, not as a root daemon. It reads the API key from the project's `.env`;
-the key is not embedded in the plist.
-
-**Permissions are tied to the launcher.** A successful terminal test does not
-prove launchd has access. Check the service logs. If macOS denies access, the
-background executable may require its own Full Disk Access / Messages Automation
-authorization in the Echo login. Approve through System Settings; no SIP changes
-are needed. If a background permission prompt cannot be completed, stop the
-service and use the working terminal instance while resolving permissions.
-
-Test a new phone message while in Echo, then **Switch User** to your main login
-and test again. Only after both work is background delivery verified.
-
-Inspect status and logs from Echo's login:
-
-```sh
-launchctl print "gui/$(id -u)/local.echo.bot"
-tail -n 40 ~/Library/Logs/Echo/stderr.log
-```
-
-Stop the service:
-
-```sh
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.bot.plist
-```
-
-To disable future login starts, move that plist out of `~/Library/LaunchAgents`.
-To apply code/config changes, boot out then bootstrap again. Logs are local;
-application errors omit message text and raw API error details. The underlying
-imsg command may print its own diagnostics. Log rotation is not configured.
-
-## Reliability boundaries
-
-This is a small supervised message bot, not a durable job system. It watches new
-messages only; messages received while stopped, restarting, or offline are not
-replayed. A failed request stops that run; launchd starts a fresh watcher.
-OpenAI has a 30-second request timeout and at most one SDK retry. iMessage sends
-have a 45-second timeout and are never retried automatically, since delivery
-may already have happened. No exactly-once delivery guarantee. A local send
-confirmation does not prove delivery to the phone.
-
-Echo's reply generation runs when a message arrives. A requested Codex job can
-continue in the background between messages. Echo does not monitor your apps or
-proactively schedule work. Replies have no conversation history; Codex job status
-and results persist separately on disk.
-
-## Extending Echo
-
-The main extension points are:
-
-- **Agent behavior:** edit `agent/processor.py`. Its interface stays
-  `process_message(message, sender, *, allow_tools=False) -> str`; return an empty
-  string to skip a reply. Add conversation memory here.
-- **Tools:** register functions in `agent/mcp_server.py`. `agent/tools.py` connects
-  their MCP schemas to the response loop; `agent/codex_jobs.py` owns Codex work.
-- **Messaging:** `messaging/imsg_transport.py` separates watching, handling an event,
-  and sending a reply. `send_reply` owns send confirmation and error handling.
-  The optional BlueBubbles adapter uses the same processor interface.
-- **Background operation:** `service.py` builds both job configurations through
-  `build_plist`; `update_bot.py` owns the Git update workflow.
-
-`run_echo.py` owns all CLI options and conversation selection. Both existing
-entry points remain supported, and no framework or plugin registry is needed.
-
-## Files and tests
-
-- `run_echo.py`: selects one direct conversation by recipient or interactive picker.
-- `imsg_main.py`: compatibility entry point for `run_echo.py --chat-id`; no duplicated launcher logic.
-- `messaging/imsg_transport.py`: receives events, filters, calls processor, sends.
-- `agent/processor.py`: OpenAI instructions and reply generation only.
-- `agent/mcp_server.py`, `agent/tools.py`: local MCP server and OpenAI tool bridge.
-- `agent/codex_jobs.py`: detached Codex jobs, durable status, and results.
-- `Enable Codex.command`, `agent/setup_tools.py`: one-time owner/workspace setup.
-- `service.py`: creates a per-user LaunchAgent configuration.
-- `main.py`, `messaging/receiver.py`, `messaging/sender.py`: optional Flask/BlueBubbles mode.
+## Tests
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Tests mock OpenAI and messaging calls: no API costs or actual iMessages.
-MCP tests connect through a real stdio subprocess and launch a fake Codex CLI to
-verify job lifetimes, failures, timeouts, and owner restrictions without paid runs.
-A live API test requires a configured key and model access.
+Tests use real SQLite, loopback HTTP, and MCP transports with fake model, messaging
+and Codex execution. They incur no API charges and send no iMessages. They cover
+authentication, sender filtering, idempotency, offline queuing, crash recovery,
+unknown send outcomes, MCP authentication, idle behavior and legacy startup.
 
-Same-account testing is still supported with `--self-chat`: only outgoing
-`/echo hello` commands trigger it, and incoming self-copies are ignored. Apple's
-duplicate sent/received bubbles in self conversations remain normal behavior.
-Use separate accounts for the distinct Echo contact experience.
-
-## Optional BlueBubbles mode
-
-Install BlueBubbles Server on the Mac, sign into Messages, grant required Full
-Disk Access and Automation permissions, and configure its server password.
-Set `BLUEBUBBLES_URL`, `BLUEBUBBLES_PASSWORD`, and `OPENAI_API_KEY` in `.env`, then
-run `.venv/bin/python main.py`. Configure a BlueBubbles `new-message` webhook to
-`http://127.0.0.1:8000/webhook`. Basic sends use `apple-script` without Private API.
-
-This optional webhook mode responds to all incoming text, including group chats;
-it does not use the direct mode's single-chat selection. Keep the unauthenticated
-endpoint on loopback. It does not deduplicate webhook deliveries. Do not run both
-transports against the same conversation. The LaunchAgent above runs direct mode.
-
-## Sources
-
-- [OpenAI Responses API](https://developers.openai.com/api/reference/python/resources/responses/methods/create)
-- [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
-- [Apple: Fast User Switching](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPMultipleUsers/Concepts/FastUserSwitching.html)
-- macOS local `launchd.plist` manual: RunAtLoad, KeepAlive, ThrottleInterval, Aqua session.
-- [imsg installation](https://github.com/openclaw/imsg/blob/main/docs/install.md)
-- [imsg watch](https://github.com/openclaw/imsg/blob/main/docs/watch.md)
-- [imsg send](https://github.com/openclaw/imsg/blob/main/docs/send.md)
-
-## Verified BlueBubbles API contract
-
-
-Checked against the official documentation and server source on October 15, 2026, at server commit `f2e2286241a7c3b6617a82b37d4afaab4df3a6b9`.
-
-A minimal incoming event has this shape (BlueBubbles includes additional fields):
-
-```json
-{
-  "type": "new-message",
-  "data": {
-    "guid": "incoming-message-guid",
-    "text": "Hello",
-    "isFromMe": false,
-    "handle": {"address": "+15551234567"},
-    "chats": [{"guid": "iMessage;-;+15551234567"}]
-  }
-}
-```
-
-The sender posts to `/api/v1/message/text` with the server password in the `password` query parameter and JSON containing `chatGuid`, `message`, `method`, and a generated `tempGuid`. It uses the incoming chat GUID unchanged, so replies target the original conversation.
-
-**Documentation discrepancy:** the older official Python webhook example uses `text` in the outbound JSON. The current server validator and router require `message`, and AppleScript sends also require `tempGuid`. This project follows the current implementation.
-
-Sources:
-
-- [Official REST API and webhook guide](https://docs.bluebubbles.app/server/developer-guides/rest-api-and-webhooks) and its [linked Postman API reference](https://documenter.getpostman.com/view/765844/UV5RnfwM).
-- [Official webhook setup](https://docs.bluebubbles.app/server/developer-guides/simple-web-server-for-webhooks) and [Python webhook example](https://docs.bluebubbles.app/server/developer-guides/simple-web-server-for-webhooks/python-web-server).
-- [Current send validation](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/http/api/v1/validators/messageValidator.ts) and [send handler](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/http/api/v1/routers/messageRouter.ts).
-- [Message serialization](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/serializers/MessageSerializer.ts), [sender-address serialization](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/serializers/HandleSerializer.ts), and [webhook dispatch](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/services/webhookService/index.ts).
-
-## Automatic GitHub updates
-
-Updates follow code committed and pushed to `origin/main`. Keep `.env` private.
-Use a dedicated clean clone in the Echo login; develop elsewhere.
-
-After the foreground test succeeds, generate both services:
+To test just a conversational response (uses the API, never sends an iMessage):
 
 ```sh
-.venv/bin/python service.py --to YOUR_IPHONE_NUMBER --auto-update
-mkdir -p ~/Library/LaunchAgents
-cp local.echo.bot.plist local.echo.update.plist ~/Library/LaunchAgents/
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.bot.plist
-launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.update.plist
+.venv/bin/python -m echo.agent.processor "Hello"
 ```
 
-If a service is already loaded, boot it out before bootstrapping its replacement.
-GitHub access must work without an interactive password prompt in the Echo login.
-The updater checks `origin/main` every five minutes, skips dirty/non-main checkouts,
-requires a fast-forward, installs dependencies and runs tests in an isolated Git
-worktree, then installs dependencies in the live environment, fast-forwards, and
-restarts the bot. It never stashes or resets local edits. It follows the configured
-origin URL, so use only your trusted repository. Tests in fetched code execute as
-Echo. Changes to service configuration require regenerating/reloading the plists.
-
-This is not an atomic deployment or zero-downtime service. Dependency-install or
-restart errors require checking `~/Library/Logs/Echo/update.log`; a partially failed
-live dependency install can require manual repair. Restarting interrupts an
-in-flight reply and the watcher has no offline replay. A candidate test failure
-leaves the live source and environment unchanged. Do not manually edit the runtime
-checkout during deployment. Logs are not automatically rotated.
-
-Stop auto-updates with:
-
-```sh
-launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.update.plist
-```
-
-Move its plist outside `~/Library/LaunchAgents` to disable it at future logins.
-
-## Deployment history on GitHub
-
-`deployment_log.py` writes an append-only local journal at
-`~/Library/Logs/Echo/events.jsonl`. Each entry has a UTC timestamp and an event:
-
-- `update_detected`: polling discovered a new `main` commit, with old/new hashes.
-  This is when the Mac noticed the push, not GitHub's exact push timestamp.
-- `restart_requested`: the updater installed the code and requested a restart.
-- `watcher_starting`: a send-enabled bot is launching its Messages watcher.
-- `watcher_started`: the watcher survived its first two seconds; includes commit,
-  process ID, and a unique run ID. Foreground send-enabled runs are recorded too.
-- `update_started`: the updater observed a fresh startup acknowledgement for the
-  expected commit and verified the Python process was still alive.
-- `update_failed`: updating or waiting for startup failed; only the error type is logged.
-
-Startup acknowledgement is not a full health check: it does not prove OpenAI
-access, sending permission, or remote message delivery. Test those with a message.
-If the watcher doesn't acknowledge within 30 seconds, the update is logged as
-failed instead of claiming a successful restart.
-
-After each updater run (including no-change checks), it publishes the accumulated
-journal to **`deployment-logs`**, under `logs/<instance-id>.jsonl`. Each Mac login
-gets a random persistent ID. This separate branch prevents logging commits from
-triggering a deployment loop on `main`, and publishing never edits the running
-checkout. Only lifecycle metadata is uploaded: no API keys, message text, email
-addresses, or phone numbers. No commit is created when the journal is unchanged.
-
-The Echo login needs noninteractive GitHub **write access**, not just pull access.
-Rejected or offline uploads retain the local journal and retry on the next
-five-minute check. Concurrent pushes are not forced; a rejected push is retried
-against the newest branch on the next check. Ordinary restarts are therefore
-published within the next check; an updater-triggered restart is published after
-startup acknowledgement. The branch first appears after a successful real upload.
-
-View [deployment logs](https://github.com/nirvaankohli/echo/tree/deployment-logs/logs)
-on GitHub, or locally:
-
-```sh
-tail -f ~/Library/Logs/Echo/events.jsonl
-```
-
-Keep the existing background bot and updater installed. This feature does not
-require new plist settings; once this code is deployed, send-enabled runs record
-startup events automatically. Local logs are not automatically rotated.
-
-## Messages arrive but Echo stays silent
-
-Double-click `Diagnose Echo.command` in the Echo project folder. It reads the
-installed bot's conversation selection and tests the last five rows through the
-real message filter, with OpenAI replaced by a fake processor and sending disabled.
-It displays direction, chat-format category, and skip reasons, never message text,
-recipient addresses, or API keys. Its results distinguish rejected rows from rows
-that the filter would accept; it does not verify live watcher delivery or OpenAI.
-If diagnosis itself lacks Messages access, grant its launcher the usual permission.
-Normal bot logs now also show accepted messages, skipped-message reasons, and when
-the agent responds. These diagnostics are local, not uploaded as deployment events.
-
-### Service-neutral direct conversations
-
-macOS may label a direct conversation `any;-;recipient` even when the launcher
-lists it as iMessage. Both normal incoming mode and self-chat mode support this
-format. The GUID must match the nonempty chat identifier, the event must belong
-to the selected chat, and group events are rejected. Replies target that exact
-identifier with iMessage explicitly selected and SMS fallback disabled. Normal
-mode still ignores outgoing messages; self-chat mode still requires `/echo`.
+See [legacy installations](docs/legacy.md) for the former single-login mode.

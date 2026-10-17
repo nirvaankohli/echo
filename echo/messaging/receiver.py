@@ -4,8 +4,8 @@ import logging
 
 from flask import current_app, jsonify, request
 
-from agent import processor
-from messaging import sender
+from echo.agent import processor
+from echo.messaging import sender
 
 logger = logging.getLogger(__name__)
 

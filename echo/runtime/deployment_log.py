@@ -9,7 +9,7 @@ import tempfile
 import time
 from uuid import uuid4
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 LOGS = Path.home() / 'Library/Logs/Echo'
 BRANCH = 'deployment-logs'
 
@@ -29,9 +29,9 @@ def record(event, **details):
     return entry
 
 
-def startup(revision):
+def startup(revision, role='watcher'):
     """Acknowledge a watcher that survived startup; not proof of message delivery."""
-    entry = record('watcher_started', commit=revision, pid=os.getpid(), run_id=uuid4().hex)
+    entry = record(f'{role}_started', commit=revision, pid=os.getpid(), run_id=uuid4().hex)
     temporary = LOGS / f'started-{os.getpid()}.tmp'
     temporary.write_text(json.dumps(entry))
     temporary.replace(LOGS / 'started.json')

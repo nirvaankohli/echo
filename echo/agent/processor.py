@@ -6,8 +6,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from echo.runtime.config import load_env
 
-ENV_PATH = Path(__file__).resolve().parents[1] / '.env'
+ENV_PATH = Path(__file__).resolve().parents[2] / '.env'
 INSTRUCTIONS = (
     'You are Echo, a helpful personal assistant chatting over iMessage. '
     'Give clear, concise, conversational answers. Use plain text. '
@@ -18,12 +19,13 @@ INSTRUCTIONS = (
 
 def process_message(message: str, sender: str, *, allow_tools: bool = False) -> str:
     """Generate one stateless reply. Sender stays local; no history is uploaded."""
+    load_env()
     load_dotenv(ENV_PATH)
     if not os.environ.get('OPENAI_API_KEY', '').strip():
         raise ValueError('Set OPENAI_API_KEY in the project .env file')
     with OpenAI(timeout=30.0, max_retries=1) as client:
         if allow_tools:
-            from agent.tools import enabled_for, respond
+            from echo.tools.client import enabled_for, respond
             if enabled_for(sender):
                 return asyncio.run(respond(client, message, INSTRUCTIONS,
                                            os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')))

@@ -4,22 +4,22 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from messaging.imsg_transport import handle_message, watch_messages
+from echo.messaging.imsg_transport import handle_message, watch_messages
 
 EVENT = {'chat_id': 42, 'chat_guid': 'iMessage;-;test@example.com',
          'sender': 'test@example.com', 'text': 'Hello', 'is_from_me': False}
 
 
 class ImsgTests(unittest.TestCase):
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='replacement response')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='replacement response')
     def test_dry_run_calls_agent_without_sending(self, process, run):
         self.assertTrue(handle_message(EVENT, 42))
         process.assert_called_once_with('Hello', 'test@example.com', allow_tools=False)
         run.assert_not_called()
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='replacement response')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='replacement response')
     def test_sends_agent_response_to_original_chat(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         self.assertTrue(handle_message(EVENT, 42, send=True))
@@ -28,8 +28,8 @@ class ImsgTests(unittest.TestCase):
         self.assertEqual(command[command.index('--chat-guid') + 1], EVENT['chat_guid'])
         self.assertIn('--no-sms-fallback', command)
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='response')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='response')
     def test_group_replies_cannot_run_tools(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         for changes in ({'chat_guid': 'iMessage;+;group'}, {'is_group': True}):
@@ -37,7 +37,7 @@ class ImsgTests(unittest.TestCase):
             self.assertTrue(handle_message({**EVENT, **changes}, 42, send=True))
             process.assert_called_once_with('Hello', 'test@example.com', allow_tools=False)
 
-    @patch('agent.processor.process_message')
+    @patch('echo.agent.processor.process_message')
     def test_ignores_own_other_chat_and_non_text_events(self, process):
         for changes in [{'is_from_me': True}, {'is_from_me': None}, {'chat_id': 43},
                         {'chat_guid': 'SMS;-;test'}, {'chat_guid': None},
@@ -46,8 +46,8 @@ class ImsgTests(unittest.TestCase):
                 self.assertFalse(handle_message({**EVENT, **changes}, 42, send=True))
         process.assert_not_called()
 
-    @patch('agent.processor.process_message', return_value='test response')
-    @patch('messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='test response')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
     def test_failed_or_uncertain_send_is_not_retried(self, run, process):
         for result in [Mock(returncode=1), Mock(returncode=0, stdout='invalid'),
                        Mock(returncode=0, stdout='{}')]:
@@ -60,7 +60,7 @@ class ImsgTests(unittest.TestCase):
         with self.assertRaises(subprocess.TimeoutExpired):
             handle_message(EVENT, 42, send=True)
 
-    @patch('messaging.imsg_transport.subprocess.Popen')
+    @patch('echo.messaging.imsg_transport.subprocess.Popen')
     def test_watch_failure_terminates_child(self, popen):
         child = popen.return_value.__enter__.return_value
         child.stdout = iter(['invalid json\n'])
@@ -72,8 +72,8 @@ class ImsgTests(unittest.TestCase):
 
 
 class SelfChatTests(unittest.TestCase):
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='hi')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='hi')
     def test_own_command_passes_clean_text_to_agent(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         event = {**EVENT, 'is_from_me': True, 'sender': '', 'text': '/echo hello'}
@@ -81,7 +81,7 @@ class SelfChatTests(unittest.TestCase):
         process.assert_called_once_with('hello', 'self', allow_tools=False)
         run.assert_called_once()
 
-    @patch('agent.processor.process_message')
+    @patch('echo.agent.processor.process_message')
     def test_replies_incoming_copies_and_groups_do_not_trigger(self, process):
         base = {**EVENT, 'is_from_me': True, 'text': '/echo hello'}
         for changes in [{'text': 'hi'}, {'text': 'ordinary message'}, {'text': '/echo '},
@@ -91,16 +91,16 @@ class SelfChatTests(unittest.TestCase):
                 self.assertFalse(handle_message({**base, **changes}, 42, self_chat=True, send=True))
         process.assert_not_called()
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='/echo recursive reply')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='/echo recursive reply')
     def test_agent_cannot_generate_another_command(self, process, run):
         with self.assertRaises(ValueError):
             handle_message({**EVENT, 'is_from_me': True, 'text': '/echo hello'},
                            42, self_chat=True, send=True)
         run.assert_not_called()
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='hi')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='hi')
     def test_any_service_self_chat_command_and_received_copy(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         event = {**EVENT, 'chat_guid': 'any;-;+15551234567',
@@ -116,7 +116,7 @@ class SelfChatTests(unittest.TestCase):
                                         self_chat=True, send=True))
         run.assert_called_once()
 
-    @patch('agent.processor.process_message')
+    @patch('echo.agent.processor.process_message')
     def test_any_chat_requires_matching_direct_identifier(self, process):
         base = {**EVENT, 'text': '/echo hello', 'is_from_me': True,
                 'chat_guid': 'any;-;+15551234567'}
@@ -130,8 +130,8 @@ class IncomingNeutralChatTests(unittest.TestCase):
     event = {**EVENT, 'chat_guid': 'any;-;test@example.com',
              'chat_identifier': 'test@example.com', 'is_group': False}
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message', return_value='agent reply')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message', return_value='agent reply')
     def test_incoming_direct_chat_replies_once_using_imessage(self, process, run):
         run.return_value = Mock(returncode=0, stdout='{"status":"sent"}')
         self.assertTrue(handle_message(self.event, 42, send=True))
@@ -145,8 +145,8 @@ class IncomingNeutralChatTests(unittest.TestCase):
         run.assert_called_once()
         process.assert_called_once()
 
-    @patch('messaging.imsg_transport.subprocess.run')
-    @patch('agent.processor.process_message')
+    @patch('echo.messaging.imsg_transport.subprocess.run')
+    @patch('echo.agent.processor.process_message')
     def test_invalid_recipients_groups_and_other_chats_never_process(self, process, run):
         for changes in [{'chat_identifier': None}, {'chat_identifier': ''},
                         {'chat_identifier': 'different@example.com'}, {'is_group': True},

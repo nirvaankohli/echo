@@ -4,14 +4,14 @@ import plistlib
 import unittest
 from unittest.mock import Mock, patch
 
-from agent.processor import process_message
-from service import build_plist
+from echo.agent.processor import process_message
+from echo.runtime.service import build_plist
 
 
 class AgentTests(unittest.TestCase):
-    @patch('agent.processor.load_dotenv')
+    @patch('echo.agent.processor.load_dotenv')
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key', 'OPENAI_MODEL': 'test-model'})
-    @patch('agent.processor.OpenAI')
+    @patch('echo.agent.processor.OpenAI')
     def test_reply_and_private_sender(self, factory, load):
         create = factory.return_value.__enter__.return_value.responses.create
         create.return_value = Mock(status='completed', output_text='  Hello!  ')
@@ -22,9 +22,9 @@ class AgentTests(unittest.TestCase):
         self.assertFalse(kwargs['store'])
         self.assertNotIn('+15551234567', str(kwargs))
 
-    @patch('agent.processor.load_dotenv')
+    @patch('echo.agent.processor.load_dotenv')
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
-    @patch('agent.processor.OpenAI')
+    @patch('echo.agent.processor.OpenAI')
     def test_empty_incomplete_and_failed_responses(self, factory, load):
         create = factory.return_value.__enter__.return_value.responses.create
         for status, text in [('completed', ' '), ('incomplete', 'partial')]:
@@ -48,10 +48,10 @@ class AgentTests(unittest.TestCase):
         self.assertNotIn('OPENAI_API_KEY', config['EnvironmentVariables'])
 
 class ServiceInstallTests(unittest.TestCase):
-    @patch('service.subprocess.run')
+    @patch('echo.runtime.service.subprocess.run')
     def test_replaces_loaded_service_before_starting(self, run):
         import tempfile
-        from service import install_service
+        from echo.runtime.service import install_service
         run.return_value.returncode = 0
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -62,10 +62,10 @@ class ServiceInstallTests(unittest.TestCase):
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual([cmd[1] for cmd in commands], ['print', 'bootout', 'bootstrap'])
 
-    @patch('service.subprocess.run')
+    @patch('echo.runtime.service.subprocess.run')
     def test_new_service_bootstraps_without_bootout(self, run):
         import tempfile
-        from service import install_service
+        from echo.runtime.service import install_service
         run.return_value.returncode = 1
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)

@@ -3,8 +3,8 @@ import io
 import unittest
 from unittest.mock import Mock, patch
 
-from repair import direct_launcher
-from run_echo import main
+from echo.runtime.repair import direct_launcher
+from echo.runtime.run_echo import main
 
 
 class RepairTests(unittest.TestCase):
@@ -20,8 +20,8 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(direct_launcher(new), new)
 
     @patch.dict('os.environ', {'ECHO_KEEP_AWAKE': '1'})
-    @patch('run_echo.subprocess.Popen')
-    @patch('run_echo.watch_messages')
+    @patch('echo.runtime.run_echo.subprocess.Popen')
+    @patch('echo.runtime.run_echo.watch_messages')
     def test_sleep_helper_runs_as_child_and_stops_on_failure(self, watch, popen):
         watch.side_effect = RuntimeError('watcher failed')
         helper = popen.return_value

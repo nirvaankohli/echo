@@ -8,11 +8,11 @@ from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from flask import Flask
 
-from messaging.receiver import receive_message
+from echo.messaging.receiver import receive_message
 
 
 def create_app() -> Flask:
-    load_dotenv(Path(__file__).with_name('.env'))
+    load_dotenv(Path(__file__).resolve().parents[2] / '.env')
     app = Flask(__name__)
     url = os.getenv('BLUEBUBBLES_URL', 'http://127.0.0.1:1234').rstrip('/')
     password = os.getenv('BLUEBUBBLES_PASSWORD', '')

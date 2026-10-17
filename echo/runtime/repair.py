@@ -8,10 +8,10 @@ import subprocess
 import sys
 import time
 
-from deployment_log import git, wait_for_start
-from service import install_service
+from echo.runtime.deployment_log import git, wait_for_start
+from echo.runtime.service import install_service
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def direct_launcher(config):
@@ -31,7 +31,9 @@ def main():
     if not path.exists():
         raise RuntimeError('Echo is not installed in this Mac login yet. Follow the README setup first.')
     config = direct_launcher(plistlib.loads(path.read_bytes()))
-    if str(ROOT / 'run_echo.py') not in config['ProgramArguments']:
+    if (str(ROOT / 'run_echo.py') not in config['ProgramArguments']
+            and not (config.get('WorkingDirectory') == str(ROOT)
+                     and config['ProgramArguments'][-3:] == ['-m', 'echo', 'bridge'])):
         raise RuntimeError('Open Repair Echo.command from the same project folder as the installed bot.')
     python = Path(config['ProgramArguments'][0]).resolve()
     print('\nEcho needs permission to read Messages when running in the background.\n')
@@ -52,7 +54,8 @@ def main():
         print('add the imsg executable selected in Finder to Full Disk Access too, then rerun this tool.')
         imsg = shutil.which('imsg') or '/opt/homebrew/bin/imsg'
         subprocess.run(['open', '-R', str(Path(imsg).resolve())], check=False)
-        subprocess.run(['open', '-e', str(Path.home() / 'Library/Logs/Echo/stderr.log')], check=False)
+        subprocess.run(['open', '-e', config.get('StandardErrorPath',
+                       str(Path.home() / 'Library/Logs/Echo/stderr.log'))], check=False)
         return
     print('\nEcho confirmed startup. Now text its email from your iPhone to test an actual reply.')
     print('If macOS asks for permission to control Messages, allow it.')

@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-import deployment_log as log
+from echo.runtime import deployment_log as log
 
 
 class DeploymentLogTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class DeploymentLogTests(unittest.TestCase):
             log.wait_for_start('wrong-commit', started, timeout=0.01)
         with self.assertRaises(TimeoutError):
             log.wait_for_start('abc', time.time() + 10, timeout=0.01)
-        with patch('deployment_log.os.kill', side_effect=ProcessLookupError):
+        with patch('echo.runtime.deployment_log.os.kill', side_effect=ProcessLookupError):
             with self.assertRaises(TimeoutError):
                 log.wait_for_start('abc', started, timeout=0.01)
 
@@ -64,17 +64,17 @@ class DeploymentLogTests(unittest.TestCase):
     def test_failed_upload_keeps_local_journal(self):
         log.record('watcher_started', commit='abc')
         before = (self.logs / 'events.jsonl').read_bytes()
-        with patch('deployment_log.git', side_effect=subprocess.CalledProcessError(1, 'git')):
+        with patch('echo.runtime.deployment_log.git', side_effect=subprocess.CalledProcessError(1, 'git')):
             with self.assertRaises(subprocess.CalledProcessError):
                 log.publish()
         self.assertEqual((self.logs / 'events.jsonl').read_bytes(), before)
 
-    @patch('messaging.imsg_transport.deployment_log.startup')
-    @patch('messaging.imsg_transport.deployment_log.record')
-    @patch('messaging.imsg_transport.deployment_log.git', return_value='abc')
-    @patch('messaging.imsg_transport.subprocess.Popen')
+    @patch('echo.messaging.imsg_transport.deployment_log.startup')
+    @patch('echo.messaging.imsg_transport.deployment_log.record')
+    @patch('echo.messaging.imsg_transport.deployment_log.git', return_value='abc')
+    @patch('echo.messaging.imsg_transport.subprocess.Popen')
     def test_failed_watcher_never_acknowledges_start(self, popen, git, record, startup):
-        from messaging.imsg_transport import watch_messages
+        from echo.messaging.imsg_transport import watch_messages
         child = popen.return_value.__enter__.return_value
         child.wait.return_value = 1
         child.poll.return_value = 1
@@ -82,12 +82,12 @@ class DeploymentLogTests(unittest.TestCase):
             watch_messages(42, send=True)
         startup.assert_not_called()
 
-    @patch('messaging.imsg_transport.deployment_log.startup')
-    @patch('messaging.imsg_transport.deployment_log.record')
-    @patch('messaging.imsg_transport.deployment_log.git', return_value='abc')
-    @patch('messaging.imsg_transport.subprocess.Popen')
+    @patch('echo.messaging.imsg_transport.deployment_log.startup')
+    @patch('echo.messaging.imsg_transport.deployment_log.record')
+    @patch('echo.messaging.imsg_transport.deployment_log.git', return_value='abc')
+    @patch('echo.messaging.imsg_transport.subprocess.Popen')
     def test_watcher_acknowledges_after_startup_window(self, popen, git, record, startup):
-        from messaging.imsg_transport import watch_messages
+        from echo.messaging.imsg_transport import watch_messages
         child = popen.return_value.__enter__.return_value
         child.wait.side_effect = [subprocess.TimeoutExpired('imsg', 2), 0]
         child.stdout = iter([])
