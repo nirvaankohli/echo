@@ -161,10 +161,26 @@ The AI runs only when a message arrives. It does not continuously think, monitor
 your apps, or proactively schedule work. For now replies have no conversation
 history, and restarting loses no agent memory because none is stored.
 
+## Extending Echo
+
+There are three places to work:
+
+- **Agent behavior:** edit `agent/processor.py`. Its interface stays
+  `process_message(message, sender) -> str`; return an empty string to skip a reply.
+  Add memory or tools here without changing the launchers or transports.
+- **Messaging:** `messaging/imsg_transport.py` separates watching, handling an event,
+  and sending a reply. `send_reply` owns send confirmation and error handling.
+  The optional BlueBubbles adapter uses the same processor interface.
+- **Background operation:** `service.py` builds both job configurations through
+  `build_plist`; `update_bot.py` owns the Git update workflow.
+
+`run_echo.py` owns all CLI options and conversation selection. Both existing
+entry points remain supported, and no framework or plugin registry is needed.
+
 ## Files and tests
 
 - `run_echo.py`: selects one direct conversation by recipient or interactive picker.
-- `imsg_main.py`: alternative launcher with an explicit chat ID.
+- `imsg_main.py`: compatibility entry point for `run_echo.py --chat-id`; no duplicated launcher logic.
 - `messaging/imsg_transport.py`: receives events, filters, calls processor, sends.
 - `agent/processor.py`: OpenAI instructions and reply generation only.
 - `service.py`: creates a per-user LaunchAgent configuration.
@@ -274,3 +290,48 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/local.echo.update.plist
 ```
 
 Move its plist outside `~/Library/LaunchAgents` to disable it at future logins.
+
+## Deployment history on GitHub
+
+`deployment_log.py` writes an append-only local journal at
+`~/Library/Logs/Echo/events.jsonl`. Each entry has a UTC timestamp and an event:
+
+- `update_detected`: polling discovered a new `main` commit, with old/new hashes.
+  This is when the Mac noticed the push, not GitHub's exact push timestamp.
+- `restart_requested`: the updater installed the code and requested a restart.
+- `watcher_starting`: a send-enabled bot is launching its Messages watcher.
+- `watcher_started`: the watcher survived its first two seconds; includes commit,
+  process ID, and a unique run ID. Foreground send-enabled runs are recorded too.
+- `update_started`: the updater observed a fresh startup acknowledgement for the
+  expected commit and verified the Python process was still alive.
+- `update_failed`: updating or waiting for startup failed; only the error type is logged.
+
+Startup acknowledgement is not a full health check: it does not prove OpenAI
+access, sending permission, or remote message delivery. Test those with a message.
+If the watcher doesn't acknowledge within 30 seconds, the update is logged as
+failed instead of claiming a successful restart.
+
+After each updater run (including no-change checks), it publishes the accumulated
+journal to **`deployment-logs`**, under `logs/<instance-id>.jsonl`. Each Mac login
+gets a random persistent ID. This separate branch prevents logging commits from
+triggering a deployment loop on `main`, and publishing never edits the running
+checkout. Only lifecycle metadata is uploaded: no API keys, message text, email
+addresses, or phone numbers. No commit is created when the journal is unchanged.
+
+The Echo login needs noninteractive GitHub **write access**, not just pull access.
+Rejected or offline uploads retain the local journal and retry on the next
+five-minute check. Concurrent pushes are not forced; a rejected push is retried
+against the newest branch on the next check. Ordinary restarts are therefore
+published within the next check; an updater-triggered restart is published after
+startup acknowledgement. The branch first appears after a successful real upload.
+
+View [deployment logs](https://github.com/nirvaankohli/echo/tree/deployment-logs/logs)
+on GitHub, or locally:
+
+```sh
+tail -f ~/Library/Logs/Echo/events.jsonl
+```
+
+Keep the existing background bot and updater installed. This feature does not
+require new plist settings; once this code is deployed, send-enabled runs record
+startup events automatically. Local logs are not automatically rotated.

@@ -5,15 +5,16 @@ from unittest.mock import Mock, patch
 from update_bot import update
 
 
+@patch('update_bot.deployment_log.record')
 class UpdateTests(unittest.TestCase):
     @patch('update_bot.run')
-    def test_local_changes_never_fetch_or_restart(self, run):
+    def test_local_changes_never_fetch_or_restart(self, run, record):
         run.return_value.stdout = ' M agent/processor.py'
         update()
         run.assert_called_once_with('git', 'status', '--porcelain', capture=True)
 
     @patch('update_bot.run')
-    def test_failed_candidate_tests_leave_live_checkout_untouched(self, run):
+    def test_failed_candidate_tests_leave_live_checkout_untouched(self, run, record):
         def result(*args, **kwargs):
             if args[:3] == ('git', 'status', '--porcelain'):
                 return Mock(stdout='')

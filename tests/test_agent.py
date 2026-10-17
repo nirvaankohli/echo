@@ -71,3 +71,16 @@ class ServiceInstallTests(unittest.TestCase):
             home = Path(directory)
             install_service(build_plist(home / 'echo', home, 'test@example.com', '/opt/homebrew/bin/imsg'), home)
         self.assertEqual([call.args[0][1] for call in run.call_args_list], ['print', 'bootstrap'])
+
+    def test_updater_is_periodic_and_keep_awake_wraps_only_bot(self):
+        project, home = Path('/Users/echo/My Bot'), Path('/Users/echo')
+        bot = build_plist(project, home, 'test@example.com', '/opt/homebrew/bin/imsg', keep_awake=True)
+        updater = build_plist(project, home, 'test@example.com', '/opt/homebrew/bin/imsg',
+                              update=True, keep_awake=True)
+        self.assertEqual(bot['ProgramArguments'][:2], ['/usr/bin/caffeinate', '-i'])
+        self.assertEqual(updater['StartInterval'], 300)
+        self.assertNotIn('KeepAlive', updater)
+        self.assertEqual(updater['Label'], 'local.echo.update')
+        self.assertEqual(updater['EnvironmentVariables']['GIT_TERMINAL_PROMPT'], '0')
+        self.assertEqual(updater['ProgramArguments'], [str(project / '.venv/bin/python'), '-u',
+                                                     str(project / 'update_bot.py')])

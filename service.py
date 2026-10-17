@@ -11,21 +11,29 @@ import sys
 LABEL = 'local.echo.bot'
 
 
-def build_plist(project: Path, home: Path, recipient: str, imsg: str) -> dict:
+def build_plist(project: Path, home: Path, recipient: str, imsg: str, *,
+                update: bool = False, keep_awake: bool = False) -> dict:
+    command = [str(project / '.venv/bin/python'), '-u',
+               str(project / ('update_bot.py' if update else 'run_echo.py'))]
+    if not update:
+        command += ['--send', '--to', recipient]
+    if keep_awake and not update:
+        command = ['/usr/bin/caffeinate', '-i', *command]
+    logs = home / 'Library/Logs/Echo'
     return {
-        'Label': LABEL,
-        'ProgramArguments': [str(project / '.venv/bin/python'), '-u',
-                             str(project / 'run_echo.py'), '--send', '--to', recipient],
+        'Label': 'local.echo.update' if update else LABEL,
+        'ProgramArguments': command,
         'WorkingDirectory': str(project),
         'EnvironmentVariables': {
             'PATH': f'{Path(imsg).parent}:/usr/bin:/bin:/usr/sbin:/sbin',
+            'GIT_TERMINAL_PROMPT': '0',
         },
         'LimitLoadToSessionType': 'Aqua',
         'RunAtLoad': True,
-        'KeepAlive': True,
+        **({'StartInterval': 300} if update else {'KeepAlive': True}),
         'ThrottleInterval': 30,
-        'StandardOutPath': str(home / 'Library/Logs/Echo/stdout.log'),
-        'StandardErrorPath': str(home / 'Library/Logs/Echo/stderr.log'),
+        'StandardOutPath': str(logs / ('update.log' if update else 'stdout.log')),
+        'StandardErrorPath': str(logs / ('update.log' if update else 'stderr.log')),
         'Umask': 0o077,
     }
 
@@ -69,32 +77,15 @@ def main() -> None:
             parser.error('Set OPENAI_API_KEY in this project .env before installing')
     logs = home / 'Library/Logs/Echo'
     logs.mkdir(parents=True, exist_ok=True, mode=0o700)
-    output = project / f'{LABEL}.plist'
-    bot = build_plist(project, home, args.to, imsg)
-    if args.keep_awake:
-        bot['ProgramArguments'] = ['/usr/bin/caffeinate', '-i', *bot['ProgramArguments']]
-    output.write_bytes(plistlib.dumps(bot))
-    output.chmod(0o600)
-    print(f'Created {output}. Follow README activation steps in the Echo login.')
-    if args.install:
-        install_service(bot, home)
-    if args.auto_update:
-        updater = build_plist(project, home, args.to, imsg)
-        updater.update({
-            'Label': 'local.echo.update',
-            'ProgramArguments': [str(project / '.venv/bin/python'), '-u', str(project / 'update_bot.py')],
-            'StartInterval': 300,
-            'StandardOutPath': str(logs / 'update.log'),
-            'StandardErrorPath': str(logs / 'update.log'),
-        })
-        updater['EnvironmentVariables']['GIT_TERMINAL_PROMPT'] = '0'
-        updater.pop('KeepAlive')
-        output = project / 'local.echo.update.plist'
-        output.write_bytes(plistlib.dumps(updater))
+    for update in ([False, True] if args.auto_update else [False]):
+        config = build_plist(project, home, args.to, imsg, update=update, keep_awake=args.keep_awake)
+        output = project / f"{config['Label']}.plist"
+        output.write_bytes(plistlib.dumps(config))
         output.chmod(0o600)
-        print(f'Created {output}. Updates require a clean checkout on main.')
+        print(f'Created {output}')
         if args.install:
-            install_service(updater, home)
+            install_service(config, home)
+
 
 
 if __name__ == '__main__':

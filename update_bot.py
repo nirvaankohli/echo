@@ -6,6 +6,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
+
+import deployment_log
 
 ROOT = Path(__file__).resolve().parent
 
@@ -29,6 +32,7 @@ def update():
     current = run('git', 'rev-parse', 'HEAD', capture=True).stdout.strip()
     if target == current:
         return
+    deployment_log.record('update_detected', previous_commit=current, commit=target)
     run('git', 'merge-base', '--is-ancestor', current, target)
     with tempfile.TemporaryDirectory(prefix='echo-update-') as folder:
         candidate = Path(folder) / 'candidate'
@@ -47,8 +51,12 @@ def update():
             run(str(ROOT / '.venv/bin/python'), '-m', 'pip', 'install', '-r',
                 str(candidate / 'requirements.txt'))
             run('git', 'merge', '--ff-only', target)
+            requested_at = time.time()
+            deployment_log.record('restart_requested', commit=target)
             run('launchctl', 'kickstart', '-k', f'gui/{os.getuid()}/local.echo.bot')
-            print('Updated and restarted Echo.', flush=True)
+            run_id = deployment_log.wait_for_start(target, requested_at)
+            deployment_log.record('update_started', commit=target, run_id=run_id)
+            print('Updated Echo; new watcher acknowledged startup.', flush=True)
         finally:
             run('git', 'worktree', 'remove', '--force', str(candidate))
 
@@ -64,5 +72,11 @@ if __name__ == '__main__':
         try:
             update()
         except (subprocess.SubprocessError, OSError) as exc:
+            deployment_log.record('update_failed', error=type(exc).__name__)
             print(f'Update failed ({type(exc).__name__}); inspect updater log.', flush=True)
             sys.exit(1)
+        finally:
+            try:
+                deployment_log.publish()
+            except (subprocess.SubprocessError, OSError) as exc:
+                print(f'Log upload failed ({type(exc).__name__}); retrying at next check.', flush=True)

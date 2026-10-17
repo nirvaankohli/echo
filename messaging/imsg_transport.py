@@ -2,6 +2,9 @@
 
 import json
 import logging
+import os
+
+import deployment_log
 import subprocess
 
 from agent import processor
@@ -54,6 +57,12 @@ def handle_message(event: dict, chat_id: int, *, send: bool = False,
         logger.info('Dry run: processed incoming text; reply ready (%d characters)', len(response))
         return True
 
+    send_reply(response, destination, executable)
+    return True
+
+
+def send_reply(response: str, destination: list[str], executable: str) -> None:
+    """Submit one reply; never retry a failed or uncertain send."""
     result = subprocess.run(
         [executable, 'send', *destination, '--text', response,
          '--service', 'imessage', '--no-sms-fallback', '--json'],
@@ -69,16 +78,31 @@ def handle_message(event: dict, chat_id: int, *, send: bool = False,
     if not isinstance(confirmation, dict) or confirmation.get('status') != 'sent':
         raise RuntimeError('imsg did not confirm sending; outcome unknown')
     logger.info('Reply submitted to Messages')
-    return True
 
 
 def watch_messages(chat_id: int, *, send: bool = False, executable: str = 'imsg',
                    self_chat: bool = False) -> None:
     """Watch new messages only; stop on errors without retrying uncertain sends."""
+    revision = None
+    if send:
+        try:
+            revision = deployment_log.git('rev-parse', 'HEAD')
+        except (subprocess.SubprocessError, OSError):
+            revision = 'unknown'  # A source copy can run without Git metadata.
+    if revision:
+        deployment_log.record('watcher_starting', commit=revision, pid=os.getpid())
     command = [executable, 'watch', '--chat-id', str(chat_id), '--debounce', '500ms', '--json']
     with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as watcher:
         logger.info('Watcher started in %s mode; Ctrl+C stops it', 'send' if send else 'dry-run')
         try:
+            if revision:
+                # imsg emits no ready event. Detect immediate startup failures first.
+                try:
+                    watcher.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    deployment_log.startup(revision)
+                else:
+                    raise RuntimeError('imsg exited during startup')
             for line in watcher.stdout:
                 if not line.strip():
                     continue
