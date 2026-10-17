@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import os
 import shutil
 import subprocess
 
@@ -57,7 +58,10 @@ def main() -> int:
         parser.error('--chat-id must be positive')
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
     executable = shutil.which('imsg') or '/opt/homebrew/bin/imsg'
+    awake = None
     try:
+        if os.getenv('ECHO_KEEP_AWAKE') == '1':
+            awake = subprocess.Popen(['/usr/bin/caffeinate', '-i', '-w', str(os.getpid())])
         chat_id = args.chat_id or select_chat(executable, args.to, args.self_chat)
         if chat_id is not None:
             print('Echo: ' + ('replies enabled' if args.send else 'dry run (OpenAI is still called)'))
@@ -71,6 +75,10 @@ def main() -> int:
         # Raw subprocess/API errors can contain private data.
         logging.error('Stopped (%s). Check Messages, API configuration, and launcher permissions.', type(exc).__name__)
         return 1
+    finally:
+        if awake is not None and awake.poll() is None:
+            awake.terminate()
+            awake.wait(timeout=5)
     return 0
 
 

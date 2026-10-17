@@ -77,7 +77,9 @@ class ServiceInstallTests(unittest.TestCase):
         bot = build_plist(project, home, 'test@example.com', '/opt/homebrew/bin/imsg', keep_awake=True)
         updater = build_plist(project, home, 'test@example.com', '/opt/homebrew/bin/imsg',
                               update=True, keep_awake=True)
-        self.assertEqual(bot['ProgramArguments'][:2], ['/usr/bin/caffeinate', '-i'])
+        self.assertEqual(bot['ProgramArguments'][0], str(project / '.venv/bin/python'))
+        self.assertEqual(bot['EnvironmentVariables']['ECHO_KEEP_AWAKE'], '1')
+        self.assertEqual(updater['EnvironmentVariables']['ECHO_KEEP_AWAKE'], '0')
         self.assertEqual(updater['StartInterval'], 300)
         self.assertNotIn('KeepAlive', updater)
         self.assertEqual(updater['Label'], 'local.echo.update')

@@ -17,8 +17,6 @@ def build_plist(project: Path, home: Path, recipient: str, imsg: str, *,
                str(project / ('update_bot.py' if update else 'run_echo.py'))]
     if not update:
         command += ['--send', '--to', recipient]
-    if keep_awake and not update:
-        command = ['/usr/bin/caffeinate', '-i', *command]
     logs = home / 'Library/Logs/Echo'
     return {
         'Label': 'local.echo.update' if update else LABEL,
@@ -27,6 +25,7 @@ def build_plist(project: Path, home: Path, recipient: str, imsg: str, *,
         'EnvironmentVariables': {
             'PATH': f'{Path(imsg).parent}:/usr/bin:/bin:/usr/sbin:/sbin',
             'GIT_TERMINAL_PROMPT': '0',
+            'ECHO_KEEP_AWAKE': '1' if keep_awake and not update else '0',
         },
         'LimitLoadToSessionType': 'Aqua',
         'RunAtLoad': True,

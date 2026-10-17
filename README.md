@@ -1,5 +1,23 @@
 # Echo — an always-available iMessage assistant
 
+## Repair background Messages access
+
+If the bot repeatedly exits with “Messages access failed”, pull the latest code
+and **double-click `Repair Echo.command` in Finder**, inside the Echo Mac login.
+It opens Full Disk Access settings and selects the actual Python executable in
+Finder. Add it with the + button and enable its switch, then return to the repair
+window and press Enter. The tool migrates older keep-awake wrappers to a direct
+Python launcher, preserves your recipient/settings, restarts Echo, and checks
+for a fresh startup acknowledgement. Sleep prevention runs as a Python child.
+
+macOS requires you to authorize Full Disk Access yourself; the tool cannot grant
+it. If startup still fails, it opens the error log and selects imsg for the next
+permission check. Terminal permissions alone may not cover background jobs.
+After startup succeeds, send a phone message to verify actual delivery and any
+separate Messages Automation permission. The repair tool doesn't read or copy
+chat contents or change your API key.
+
+
 Echo runs in its own macOS login, signed into Messages with a separate Apple
 Account. Your iPhone messages that account's email. Only one selected conversation
 is watched. No BlueBubbles, public HTTP server, or port forwarding is required for
