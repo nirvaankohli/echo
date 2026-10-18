@@ -1,7 +1,7 @@
 """Cheap inbox controls; durable worker execution and event-driven follow-ups."""
 import asyncio
 import hashlib
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 import json
 import logging
 import os
@@ -46,6 +46,23 @@ class Approval(Exception):
 
 class Revised(Exception):
     pass
+
+
+@asynccontextmanager
+async def task_connections():
+    """Close MCP connections normally before propagating an intentional task pause.
+
+    MCP's AnyIO task groups wrap body exceptions in ExceptionGroup. Control flow
+    must not cross that boundary, while genuine transport/cleanup failures must.
+    """
+    signal = None
+    async with AsyncExitStack() as stack:
+        try:
+            yield stack
+        except (Approval, Waiting, Cancelled, BudgetExceeded) as exc:
+            signal = exc
+    if signal is not None:
+        raise signal
 
 
 class Coordinator:
@@ -172,7 +189,7 @@ class Coordinator:
         else:
             history = [context(self.store, self.memory, row)] + chat_history(self.store, row['sender'], task_id)
         revision = self.sync_updates(task_id, history, row['seen_revision'])
-        async with AsyncExitStack() as stack:
+        async with task_connections() as stack:
             tools, routes = await discover(stack, stable=True)
             # Approved calls resume the exact saved arguments before another model turn.
             with self.store.db() as db:

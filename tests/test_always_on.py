@@ -12,8 +12,10 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
 import requests
+import anyio
 
-from echo.agent.coordinator import Coordinator, Approval, Waiting
+from echo.agent.coordinator import Coordinator, Approval, Waiting, Cancelled, task_connections
+from echo.agent.budget import BudgetExceeded
 from echo.agent.memory import Memory
 from echo.agent.server import create_app, process_one
 from echo.agent.tasks import Tasks
@@ -156,6 +158,64 @@ class AlwaysOnTests(unittest.TestCase):
         remote.call_tool.assert_called_once()
         with self.assertRaises(ValueError):
             asyncio.run(self.coordinator.call_tool('task1', 'task1:c1', route, {'title': 'different'}, time.monotonic()+10, []))
+
+    def test_approval_pause_survives_mcp_task_group_cleanup(self):
+        self.submit()
+        remote = SimpleNamespace(call_tool=AsyncMock())
+        async def discover(stack, **kwargs):
+            # MCP clients own AnyIO task groups: body exceptions are grouped on exit.
+            await stack.enter_async_context(anyio.create_task_group())
+            await stack.enter_async_context(anyio.create_task_group())
+            return [], {'start': (remote, 'codex_start', 'echo_codex', 'approval')}
+        client = Mock()
+        client.responses.create.side_effect = [response('Use Codex.'), response(calls=[Call(args={'task': 'Write an essay'})])]
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', side_effect=discover):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.tasks.claim())
+        remote.call_tool.assert_not_called()
+        self.assertEqual(self.tasks.task('task1')['status'], 'awaiting_input')
+        self.assertEqual([event['kind'] for event in self.tasks.events()], ['approval'])
+        self.submit(id='approval', text='approve')
+        remote.call_tool.return_value = tool_result({'job_id': 'j1', 'status': 'queued'})
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', side_effect=discover):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.tasks.claim())
+        remote.call_tool.assert_called_once_with('codex_start', {'task': 'Write an essay'})
+        self.assertEqual(self.tasks.task('task1')['status'], 'waiting')
+        self.assertFalse(any(event['kind'] == 'failed' for event in self.tasks.events()))
+        with self.tasks.db() as db:
+            db.execute("UPDATE jobs SET status='completed',result=?", (json.dumps({'result': 'Essay saved'}),))
+        self.tasks.change('task1', status='queued')
+        client.responses.create.side_effect = [response('Essay saved.')]
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', side_effect=discover):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.tasks.claim())
+        self.assertEqual(self.tasks.task('task1')['status'], 'completed')
+        remote.call_tool.assert_called_once()
+
+    def test_connection_cleanup_preserves_control_signals_and_real_errors(self):
+        async def run(signal, cleanup_error=False):
+            async with task_connections() as stack:
+                await stack.enter_async_context(anyio.create_task_group())
+                if cleanup_error:
+                    @asynccontextmanager
+                    async def broken_cleanup():
+                        try:
+                            yield
+                        finally:
+                            raise OSError('Transport cleanup failed')
+                    await stack.enter_async_context(broken_cleanup())
+                raise signal
+        for signal in (Approval(), Waiting(), Cancelled(), BudgetExceeded('limit')):
+            with self.subTest(signal=type(signal).__name__):
+                with self.assertRaises(type(signal)):
+                    asyncio.run(run(signal))
+        for signal, cleanup in ((RuntimeError('Real tool failure'), False), (Approval(), True)):
+            with self.assertRaises(ExceptionGroup):
+                asyncio.run(run(signal, cleanup))
 
     def test_tool_failure_has_uncertain_outcome_never_replayed(self):
         self.submit()
