@@ -60,3 +60,6 @@
 {"time": "2026-10-18T20:48:43.307721+00:00", "event": "update_started", "commit": "974bc71fcbbf117b2934f7d243053d0f1c8736e7", "run_id": "6321dc5f91e04b72ae0696c2785e5a85"}
 {"time": "2026-10-18T23:02:57.511704+00:00", "event": "watcher_starting", "commit": "974bc71fcbbf117b2934f7d243053d0f1c8736e7", "pid": 3173}
 {"time": "2026-10-18T23:02:59.573864+00:00", "event": "watcher_started", "commit": "974bc71fcbbf117b2934f7d243053d0f1c8736e7", "pid": 3173, "run_id": "c544aac62a394a3bbb339598170f05c4"}
+{"time": "2026-10-18T23:32:34.023339+00:00", "event": "update_failed", "error": "CalledProcessError"}
+{"time": "2026-10-18T23:32:36.186131+00:00", "event": "watcher_starting", "commit": "974bc71fcbbf117b2934f7d243053d0f1c8736e7", "pid": 990}
+{"time": "2026-10-18T23:32:38.205506+00:00", "event": "watcher_started", "commit": "974bc71fcbbf117b2934f7d243053d0f1c8736e7", "pid": 990, "run_id": "fac0c649b4de42e4b1ac18867c8452f4"}
