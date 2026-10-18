@@ -10,6 +10,7 @@ from openai import OpenAI
 from echo.agent.budget import Budget
 from echo.agent.processor import INSTRUCTIONS
 from echo.agent.tasks import TERMINAL
+from echo.agent.schedules import Schedules, clock_context
 
 log = logging.getLogger(__name__)
 ROUTING = (
@@ -18,6 +19,9 @@ ROUTING = (
     'Choose reply for ordinary conversation, explanations, drafting or revising text in chat, '
     'and questions answerable from the supplied history/state. Write the actual answer in response. '
     'Choose start for a new request that needs tools, external information, or background work. '
+    'The worker HAS built-in scheduling tools for one-time reminders and recurring cron jobs, including future '
+    'agent/Codex work. Choose start for creating, listing, changing, or cancelling schedules; never say scheduling '
+    'is unavailable. Ask to clarify ambiguous dates/times. The supplied clock has the default timezone. '
     'Choose continue when the user adds instructions/corrections to an active task; use its exact ID. '
     'For start/continue, response is a short acknowledgment of intended work, never a claim it is done. '
     'Do not start duplicate work just because the user mentions an existing task. '
@@ -82,7 +86,9 @@ def context(store, memory, row):
             "LEFT JOIN tasks t ON t.id=n.task_id WHERE lower(COALESCE(c.sender,t.sender))=? "
             "AND n.status IN ('pending','uncertain') ORDER BY n.created DESC LIMIT 4", (row['sender'].casefold(),))]
     # Keep full recent reply text when possible, rather than replacing the exchange with 800-character excerpts.
-    data = {'tasks': tasks, 'undelivered_replies': pending}
+    schedules = Schedules(store)
+    data = {'tasks': tasks, 'undelivered_replies': pending, 'clock': clock_context(),
+            'scheduled_occurrence': schedules.origin(row['id'])}
     for task in tasks:
         task['text'] = task['text'][:2000]
         task['result'] = (task['result'] or '')[:12000]

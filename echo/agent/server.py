@@ -31,7 +31,7 @@ def create_app(config, queue, wake, coordinator=None, conversation=None, convers
     @app.get('/v1/health')
     def health():
         return jsonify(protocol=1, role='agent', queue=queue.counts(),
-                       capabilities=(['tasks-v2'] if coordinator else []) + (['conversation-v1'] if conversation else []),
+                       capabilities=(['tasks-v2', 'schedules-v1'] if coordinator else []) + (['conversation-v1'] if conversation else []),
                        tasks=coordinator.store.summary() if coordinator else {})
 
     @app.post('/v1/messages')
@@ -168,6 +168,7 @@ def run():
             background(conversation.run, conversation_wake, wake, stop)
             background(coordinator.run, wake, stop)
             background(coordinator.monitor, wake, stop)
+            background(coordinator.schedules.run, wake, stop)
             deployment_log.startup(deployment_log.git('rev-parse', 'HEAD'), role='agent')
             log.info('Agent ready on loopback port %s; no model calls while idle', config['port'])
             try:

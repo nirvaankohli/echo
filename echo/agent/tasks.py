@@ -72,7 +72,7 @@ class Tasks(Queue):
             if 'attempts' not in columns:
                 db.execute('ALTER TABLE events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0')
             # Migrate the real exchanges once; pending/uncertain sends are not chat replies.
-            db.execute("INSERT OR IGNORE INTO conversation_messages SELECT 'user:'||id,lower(sender),'user',text,created FROM tasks")
+            db.execute("INSERT OR IGNORE INTO conversation_messages SELECT 'user:'||id,lower(sender),'user',text,created FROM tasks WHERE id NOT LIKE 'schedule:%'")
             db.execute("INSERT OR IGNORE INTO conversation_messages "
                        "SELECT 'assistant:'||n.id,lower(t.sender),'assistant',n.text,n.created "
                        "FROM notifications n JOIN tasks t ON t.id=n.task_id WHERE n.status='sent'")

@@ -59,6 +59,60 @@ mock those actions and do not send messages or make paid requests.
 | `forget <phrase>` | Delete curated memories whose text or source contains that literal phrase. |
 | `show memory` | List recent curated memories. |
 | `approve <code>` | Approve the exact saved tool action identified in Echo's request. Plain `approve` works only when exactly one action is awaiting approval. |
+| “Remind me tomorrow at 7 PM to study” | Save a one-time reminder, confirm the actual date/time/timezone, and text it when due. |
+| “Every weekday at 8 AM, summarize my calendar” | Save a recurring job that runs with the connected tools when due. |
+| “Show / move / cancel my chemistry schedule” | List, replace, or disable the saved schedule through tools. |
+
+## Scheduling
+
+The main-login coordinator exposes `schedule_create`, `schedule_list`,
+`schedule_update`, and `schedule_cancel` alongside MCP tools. No calendar account,
+system crontab, extra service, or setup on Echo is required. Each creation or
+change goes through the Decisions API with the exact reminder, future prompt,
+timing, and user's request. Work launched later gets its own action checks against
+the saved authorization. Scheduled prompts cannot bypass those checks.
+
+The conversation model receives the current date, time, and timezone and routes
+schedule requests to the worker. The worker uses either an ISO 8601 `at` timestamp
+with its UTC offset or a five-field `cron` expression with an IANA timezone, not
+both. The default timezone comes from macOS; optionally set `ECHO_TIMEZONE` in
+the main login's private `.env` and restart. Existing schedules retain their saved
+timezone. Recurring schedules use [croniter](https://github.com/pallets-eco/croniter)
+with timezone-aware dates. Ask Echo to clarify ambiguous times and check the
+confirmed date/time before relying on a reminder.
+
+The scheduler checks local state every five seconds without model calls. A due
+reminder goes directly into the durable iMessage outbox; an optional work prompt
+goes into the normal task queue. A reminder can be sent while another task is
+running; scheduled agent work waits for the single worker to become available.
+Codex completion uses the existing job monitor and sends a result afterward.
+This does not add cloud Codex access: the bundled worker creates local jobs in
+its configured workspace. Other capabilities require their connected tools.
+
+Schedules and occurrence records live in `tasks.sqlite3` under the main login's
+private Echo state directory. The due occurrence and next run are committed in
+one transaction, so restarting does not enqueue the same occurrence twice.
+After downtime, overdue one-time jobs run once; recurring jobs run at most one
+catch-up occurrence, then advance to the next future time. A schedule with an
+active occurrence skips overlapping ticks. Failed/uncertain work is not retried
+automatically; future recurring occurrences still run. There are at most 50 active
+schedules per owner, with a minimum cron resolution of one minute.
+
+Updating or cancelling a schedule also cancels queued occurrences, occurrences
+waiting for approval, and pending reminders. Already-running work or messages
+already being delivered may finish.
+Use “cancel my chemistry schedule” to disable future runs; bare `cancel` retains
+its existing meaning of cancelling the active task. Schedules survive service
+restarts, but they cannot wake a sleeping/offline Mac or run in a logged-out
+session. After a reboot, both accounts must be signed in again.
+
+To test from your phone, send “In two minutes, remind me to test Echo scheduling”.
+Wait for the saved-time confirmation, then the reminder. Follow with “Show my
+schedules” to inspect its last run, or test a recurring reminder and cancel it
+by name. Repository tests exercise timers, restart recovery, cancellation,
+timezone changes, decision checks, and Codex handoff without real messages.
+
+## Conversation continuity
 
 Conversation turns and background tasks are separate. A lightweight conversation
 model decides whether to reply, start tool work, or continue an existing task.

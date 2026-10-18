@@ -51,6 +51,27 @@ an ACL granting read access only to the designated Echo user in addition to its
 creator. After successful pairing, its creator can delete it; both users already
 have private copies of the necessary settings. Do not commit or send it in chat.
 
+## Schedule reminders and agent work
+
+Text Echo naturally, for example:
+
+- “In two minutes, remind me to study AP Chem.”
+- “Tomorrow at 7 PM, remind me to study and ask Codex to create a chemistry study guide.”
+- “Every weekday at 8 AM, use my connected calendar to send me today's agenda.”
+- “Show my schedules”, “Move my chemistry reminder to 8 PM”, or “Cancel my chemistry schedule”.
+
+Echo has built-in tools to create, list, update, and cancel schedules. One-time
+timers and recurring cron schedules persist across restarts in the main login's
+private database. Echo confirms the saved time and timezone. It uses the Mac's
+timezone unless `ECHO_TIMEZONE` is set in the main login's private `.env`.
+
+Simple reminders send the saved text without a model call at firing time.
+Scheduled work enters the normal agent workflow and its Decisions API checks,
+with a result sent when it finishes. The Mac must be awake, online, and both
+logins must remain signed in. Calendar/Codex jobs need their respective tools
+configured; the bundled Codex worker starts local jobs, not cloud chats.
+See [scheduling behavior and limits](docs/always-on.md#scheduling).
+
 ## Add MCP connections from your main login
 
 Choose **6 — Open MCP settings** in the setup menu. Configuration lives at:
