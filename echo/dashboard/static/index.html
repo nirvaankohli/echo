@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>Echo · Connections</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%232c624c'/%3E%3Cpath d='M11 21a9 9 0 0 1 18 0M15 21a5 5 0 0 1 10 0M20 22v4' fill='none' stroke='%23eaf3ec' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/app/static/app.css"><script defer src="/app/static/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a href="#connections" class="brand" aria-label="Echo home"><span class="brand-mark"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M9 21a11 11 0 0 1 22 0M14 21a6 6 0 0 1 12 0M20 23v5"/></svg></span><span>echo<span class="brand-caption">Your personal agent</span></span></a>
+    <span class="nav-caption">WORKSPACE</span>
+    <nav aria-label="Main navigation">
+      <button data-view="connections" class="nav-item selected"><span aria-hidden="true">⌘</span>Connections<span id="nav-count" class="nav-count">0</span></button>
+      <button data-view="schedules" class="nav-item"><span aria-hidden="true">◷</span>Schedules</button>
+      <button data-view="activity" class="nav-item"><span aria-hidden="true">≋</span>Activity</button>
+    </nav>
+    <div class="sidebar-bottom"><button data-view="settings" class="nav-item"><span aria-hidden="true">⚙</span>Settings</button><div class="local-note"><span class="tiny-dot"></span>Local to this Mac<span>Your accounts stay with you.</span></div></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><span id="breadcrumb">Workspace <span>/</span> Connections</span><div class="top-actions"><span id="agent-status" class="status"><i></i>Connecting to Echo</span><button id="refresh" class="icon-button" aria-label="Refresh dashboard">↻</button></div></header>
+    <main id="main" tabindex="-1"><div class="loading"><div class="skeleton wide"></div><div class="skeleton"></div><div class="skeleton tall"></div><p>Opening your workspace…</p></div></main>
+    <footer>Made for the way you work.<span>Echo · Personal workspace</span></footer>
+  </div>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+</body></html>

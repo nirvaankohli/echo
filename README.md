@@ -72,7 +72,24 @@ logins must remain signed in. Calendar/Codex jobs need their respective tools
 configured; the bundled Codex worker starts local jobs, not cloud chats.
 See [scheduling behavior and limits](docs/always-on.md#scheduling).
 
-## Add MCP connections from your main login
+## Open the companion dashboard
+
+On your **main Mac login**, open **scripts → Echo Dashboard.command**, or choose
+**8 — Open dashboard** in the setup menu. It opens a private browser session in
+the running agent. No separate web server or frontend installation is needed.
+
+Browse and search 15 provider presets, connect accounts, check their status,
+pause/remove connections, and view schedules and recent work. Gmail, Google
+Calendar, and Drive use browser sign-in after a one-time Google app setup;
+their bundled tools are **read-only**. Remote MCP providers expose the tools
+allowed by their account permissions. Existing Codex/MCP configuration stays intact.
+
+See [the connection guide](docs/connections.md) for Google setup, supported
+providers, access details, and troubleshooting. Nothing needs changing on the
+Echo login for the dashboard. Close its tab or launcher window whenever you like;
+the background agent continues running.
+
+## Add MCP connections manually from your main login
 
 Choose **6 — Open MCP settings** in the setup menu. Configuration lives at:
 

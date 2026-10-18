@@ -37,14 +37,22 @@ def configured_servers():
     path = Path(os.environ.get('ECHO_MCP_CONFIG', str(state_dir() / 'mcp.json'))).expanduser()
     if not path.exists():
         # Backward compatibility for the original single-login installation.
-        return {'echo': {'command': sys.executable, 'args': ['-m', 'echo.tools.mcp_server'], 'cwd': str(ROOT)}}
-    servers = json.loads(path.read_text())['servers']
+        servers = {'echo': {'command': sys.executable, 'args': ['-m', 'echo.tools.mcp_server'], 'cwd': str(ROOT)}}
+    else:
+        servers = json.loads(path.read_text())['servers']
     if not isinstance(servers, dict):
         raise ValueError('mcp.json servers must be an object')
-    return {name: value for name, value in servers.items() if value.get('enabled', True)}
+    from echo.connections.store import Connections
+    return {**{name: value for name, value in servers.items() if value.get('enabled', True)}, **Connections().configs()}
 
 
 async def connect(stack, config):
+    if 'native_google' in config:
+        from echo.connections.google import GoogleClient
+        return GoogleClient(config['native_google'])
+    if 'auth_connection' in config:
+        from echo.connections.oauth import remote_client
+        return await remote_client(stack, config['auth_connection'])
     if 'url' in config:
         url = urlsplit(config['url'])
         if url.scheme != 'https' and not (url.scheme == 'http' and url.hostname in ('127.0.0.1', 'localhost', '::1')):
@@ -78,7 +86,7 @@ async def discover(stack, *, stable=False):
             if name in routes:
                 raise ValueError('Duplicate tool name')
             tools.append(dict(type='function', name=name,
-                              description=f'{server_name}: {tool.name}. {tool.description or ""}',
+                              description=f'{config.get("display_name", server_name)}: {tool.name}. {tool.description or ""}',
                               parameters=tool.input_schema, strict=False))
             routes[name] = (client, tool.name)
             if stable:

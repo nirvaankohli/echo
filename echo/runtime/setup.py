@@ -161,7 +161,7 @@ def menu():
         raise ValueError('Run as your normal Mac login, without sudo')
     print('1. Main login: set up agent\n2. Echo login: set up Messages bridge\n'
           '3. Echo login: set up optional Codex worker\n4. Repair Messages access\n'
-          '5. Show status\n6. Main login: open MCP settings\n7. Restart this login')
+          '5. Show status\n6. Main login: open MCP settings\n7. Restart this login\n8. Main login: open dashboard')
     choice = input('Choose: ').strip()
     if choice == '1':
         setup_agent()
@@ -179,5 +179,8 @@ def menu():
         subprocess.run(['open', '-e', str(state_dir() / 'mcp.json')], check=True)
     elif choice == '7':
         restart()
+    elif choice == '8':
+        from echo.dashboard.launcher import open_dashboard
+        open_dashboard()
     else:
-        raise ValueError('Choose an option from 1 to 7')
+        raise ValueError('Choose an option from 1 to 8')

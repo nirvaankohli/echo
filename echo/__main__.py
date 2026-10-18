@@ -8,7 +8,7 @@ import runpy
 def main():
     parser = argparse.ArgumentParser(description='Echo background agent and Messages bridge')
     parser.add_argument('command', choices=['setup', 'agent', 'bridge', 'codex', 'status', 'update',
-                                            'repair', 'diagnose', 'mcp-check', 'restart'])
+                                            'repair', 'diagnose', 'mcp-check', 'restart', 'dashboard'])
     args = parser.parse_args()
     os.umask(0o077)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -25,6 +25,9 @@ def main():
         elif args.command == 'codex':
             from echo.tools.worker import run
             run()
+        elif args.command == 'dashboard':
+            from echo.dashboard.launcher import open_dashboard
+            open_dashboard()
         elif args.command == 'status':
             from echo.runtime.status import show
             show()

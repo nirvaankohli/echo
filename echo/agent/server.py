@@ -24,6 +24,8 @@ def create_app(config, queue, wake, coordinator=None, conversation=None, convers
 
     @app.before_request
     def authenticate():
+        if request.blueprint == 'dashboard':
+            return  # Dashboard has separate loopback, browser-session, and CSRF checks.
         if not secrets.compare_digest(request.headers.get('Authorization', '').encode(),
                                       ('Bearer ' + config['token']).encode()):
             return jsonify(error='Unauthorized'), 401
@@ -31,7 +33,7 @@ def create_app(config, queue, wake, coordinator=None, conversation=None, convers
     @app.get('/v1/health')
     def health():
         return jsonify(protocol=1, role='agent', queue=queue.counts(),
-                       capabilities=(['tasks-v2', 'schedules-v1'] if coordinator else []) + (['conversation-v1'] if conversation else []),
+                       capabilities=(['tasks-v2', 'schedules-v1', 'dashboard-v1'] if coordinator else []) + (['conversation-v1'] if conversation else []),
                        tasks=coordinator.store.summary() if coordinator else {})
 
     @app.post('/v1/messages')
@@ -96,6 +98,9 @@ def create_app(config, queue, wake, coordinator=None, conversation=None, convers
                 db.execute("UPDATE jobs SET due=0 WHERE job_id=? AND status='running'", (data['job_id'],))
             return jsonify(ok=True)
 
+    if coordinator:
+        from echo.dashboard.app import register
+        register(app, config, coordinator)
     return app
 
 
