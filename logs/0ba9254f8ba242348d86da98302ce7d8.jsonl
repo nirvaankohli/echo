@@ -48,3 +48,8 @@
 {"time": "2026-10-18T18:16:20.102049+00:00", "event": "watcher_starting", "commit": "03c275f337ec6979ca6c35fb63e4238fdcb877ce", "pid": 93927}
 {"time": "2026-10-18T18:16:22.159296+00:00", "event": "watcher_started", "commit": "03c275f337ec6979ca6c35fb63e4238fdcb877ce", "pid": 93927, "run_id": "902f55074e9548abab51c5b55c087a54"}
 {"time": "2026-10-18T18:16:22.477130+00:00", "event": "update_started", "commit": "03c275f337ec6979ca6c35fb63e4238fdcb877ce", "run_id": "902f55074e9548abab51c5b55c087a54"}
+{"time": "2026-10-18T19:11:49.438419+00:00", "event": "update_detected", "previous_commit": "03c275f337ec6979ca6c35fb63e4238fdcb877ce", "commit": "110414b82a240e75de61b3bd5118682d9e8e0f41"}
+{"time": "2026-10-18T19:12:18.400876+00:00", "event": "restart_requested", "commit": "110414b82a240e75de61b3bd5118682d9e8e0f41"}
+{"time": "2026-10-18T19:12:19.544618+00:00", "event": "watcher_starting", "commit": "110414b82a240e75de61b3bd5118682d9e8e0f41", "pid": 358}
+{"time": "2026-10-18T19:12:21.604555+00:00", "event": "watcher_started", "commit": "110414b82a240e75de61b3bd5118682d9e8e0f41", "pid": 358, "run_id": "d79a79cd818445488c432f9b5d7e366a"}
+{"time": "2026-10-18T19:12:21.665859+00:00", "event": "update_started", "commit": "110414b82a240e75de61b3bd5118682d9e8e0f41", "run_id": "d79a79cd818445488c432f9b5d7e366a"}
