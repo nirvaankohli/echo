@@ -57,6 +57,7 @@ def register(app, config, coordinator):
     def index():
         return send_from_directory(STATIC, 'index.html')
 
+    @bp.get('/<any(app.css,app.js):name>')
     @bp.get('/static/<path:name>')
     def static_file(name):
         return send_from_directory(STATIC, name)

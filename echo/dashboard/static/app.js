@@ -4,18 +4,28 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;',
 const marks = {gmail:'M','google-calendar':'31','google-drive':'△',notion:'N',linear:'◒',github:'GH',atlassian:'A',asana:'∴',figma:'F',canva:'C',webflow:'W',stripe:'S',hubspot:'H',sentry:'S',cloudflare:'☁',custom:'+'};
 let state, view='connections', selected='gmail', query='', category='All categories', tab='all', busy=false, noticeTimer;
 const main = $('#main');
-function icon(id, large=false) { return `<span aria-hidden="true" class="provider-icon provider-${esc(id)} ${large?'large':''}">${esc(marks[id]||'+')}</span>`; }
+const svg = paths => `<svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true">${paths}</svg>`;
+const providerArt = {
+  gmail: svg('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 6 9 7 9-7"/>'),
+  'google-calendar': svg('<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 11h18m-12 5h3"/>'),
+  'google-drive': svg('<path d="m9 3 6 0 8 14-3 5H4l-3-5 8-14Zm0 0 11 19M15 3 4 22m-3-5h22"/>'),
+  figma: svg('<rect x="5" y="2" width="14" height="7" rx="3.5"/><path d="M12 2v17a3.5 3.5 0 1 1-3.5-3.5H12H8.5a3.5 3.5 0 0 1 0-7"/><circle cx="15.5" cy="12.5" r="3.5"/>'),
+  custom: svg('<path d="M12 5v14M5 12h14"/>')
+};
+function icon(id, large=false) { return `<span aria-hidden="true" class="provider-icon provider-${esc(id)} ${large?'large':''}">${providerArt[id]||esc(marks[id]||'+')}</span>`; }
 function status(row) { return row.status==='connected' ? (row.enabled?'Connected':'Paused') : row.status==='error'?'Needs attention':'Setup needed'; }
 function badge(row) { return `<span class="badge ${row.status==='connected'&&row.enabled?'good':row.status==='error'?'warn':''}">${esc(status(row))}</span>`; }
 function date(value) { return value ? new Date(typeof value==='number'?value*1000:value).toLocaleString([], {dateStyle:'medium',timeStyle:'short'}) : 'Not checked yet'; }
 function toast(message) { clearTimeout(noticeTimer); $('#notice').textContent=message; $('#notice').hidden=false; noticeTimer=setTimeout(()=>$('#notice').hidden=true,5500); }
 async function api(path, data) {
   const response=await fetch('/app/'+path, {credentials:'same-origin', headers:data===undefined?{}:{'Content-Type':'application/json','X-Echo-Dashboard':'1'}, method:data===undefined?'GET':'POST', body:data===undefined?undefined:JSON.stringify(data)});
-  const result=await response.json();
+  let result;
+  try {result=await response.json();} catch {throw new Error('Echo returned an unexpected response. Try refreshing.');}
   if (!response.ok) { const error=new Error(result.error||'Could not complete that request.'); error.status=response.status; throw error; }
   return result;
 }
 function locked(message) {
+  state=null;$('#nav-count').textContent='0';
   main.innerHTML=`<section class="locked"><div class="eyebrow">YOUR PRIVATE WORKSPACE</div><h1>Open Echo on your Mac.</h1><p>${esc(message)}</p><p>In the Echo project, open <strong>scripts → Echo Dashboard.command</strong> from your main Mac login. It signs this browser in securely.</p><button class="button" data-action="refresh">Try again</button></section>`;
   $('#agent-status').textContent='Sign-in needed';
 }
@@ -25,10 +35,10 @@ async function refresh(render=true) {
     $('#agent-status').innerHTML='<i></i>Agent running';
     $('#nav-count').textContent=state.connections.filter(c=>c.enabled&&c.status==='connected').length;
     if(render) draw();
-  } catch(error) { if(error.status===401) locked(error.message); else toast(error.message); throw error; }
+  } catch(error) { if(error.status===401) locked(error.message); else {$('#agent-status').textContent='Connection lost';toast('Cannot reach Echo. Check that the agent is running, then refresh.');} throw error; }
 }
-function navigate(next) { view=next; history.replaceState(null,'','#'+view); draw(); main.focus({preventScroll:true}); }
-function heading(title, subtitle, action='') { return `<div class="page-heading"><div><div class="eyebrow">YOUR ECHO WORKSPACE</div><h1>${title}</h1><p class="subtitle">${subtitle}</p></div>${action}</div>`; }
+function navigate(next) { main.classList.remove('show-detail');view=next; history.replaceState(null,'','#'+view); draw(); main.focus({preventScroll:true}); }
+function heading(title, subtitle, action='') { return `<div class="page-heading"><div><div class="eyebrow">WORKSPACE</div><h1>${title}</h1><p class="subtitle">${subtitle}</p></div>${action}</div>`; }
 function draw() {
   if (!state) return;
   document.querySelectorAll('[data-view]').forEach(el=>{el.classList.toggle('selected',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
@@ -40,9 +50,9 @@ function connections() {
   const connected=state.connections.filter(c=>c.enabled&&c.status==='connected');
   const chips=[...connected.map(c=>`<button class="strip-connection" data-provider="${esc(c.provider)}"><span class="tiny-dot"></span>${esc(c.label)}</button>`),
     ...state.existing.map(c=>`<span class="strip-connection">${esc(c.label)} <span class="badge">${c.enabled?'Configured':'Paused'}</span></span>`)];
-  main.innerHTML=heading('Connections','Choose the tools Echo can use for you.', '<button class="button" data-provider="custom"><span aria-hidden="true">＋</span> Custom connection</button>')+
+  main.innerHTML=heading('Connections','Your apps, working together with Echo.', '<button class="button" data-provider="custom"><span aria-hidden="true">＋</span> Custom connection</button>')+
     `<section class="connected-strip" aria-label="Current connections"><span class="strip-title">In your workspace</span>${chips.join('')||'<span class="strip-empty">Your first connection starts below.</span>'}</section>
-    <div class="workspace-grid"><section class="catalog" aria-label="Provider catalog"><div class="catalog-toolbar"><div class="search"><span aria-hidden="true">⌕</span><label class="sr-only" for="search">Search services</label><input id="search" type="search" placeholder="Search your apps…" value="${esc(query)}" autocomplete="off"></div><label for="category" class="sr-only">Filter by category</label><select id="category" class="filter-select">${['All categories',...new Set(state.providers.map(p=>p.category))].map(c=>`<option ${c===category?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
+    <div class="workspace-grid"><section class="catalog" aria-label="Provider catalog"><div class="catalog-toolbar"><div class="search">${svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>')}<label class="sr-only" for="search">Search services</label><input id="search" type="search" placeholder="Find an app…" value="${esc(query)}" autocomplete="off"></div><label for="category" class="sr-only">Filter by category</label><select id="category" class="filter-select">${['All categories',...new Set(state.providers.map(p=>p.category))].map(c=>`<option ${c===category?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
     <div class="tabs" role="group" aria-label="Connection filter"><button class="tab ${tab==='all'?'selected':''}" data-tab="all" aria-pressed="${tab==='all'}">All apps <span>${state.providers.length}</span></button><button class="tab ${tab==='connected'?'selected':''}" data-tab="connected" aria-pressed="${tab==='connected'}">Your connections <span>${state.connections.length}</span></button></div><ul id="providers" class="provider-list"></ul>
     <div class="custom-row"><span aria-hidden="true">＋</span><div><h3>Something else in mind?</h3><p>Bring any compatible remote MCP service.</p></div><button class="button sm" data-provider="custom">Add</button></div></section><aside id="detail" class="detail-panel" aria-label="Connection details"></aside></div>`;
   renderProviders(); renderDetail();
@@ -53,7 +63,8 @@ function renderProviders() {
     const good=state.connections.find(c=>c.provider===p.id&&c.enabled&&c.status==='connected');
     return `<li class="provider-row"><button class="provider-select ${selected===p.id?'active':''}" data-provider="${esc(p.id)}" aria-pressed="${selected===p.id}">${icon(p.id)}<span class="provider-text"><strong>${esc(p.name)}</strong><p>${esc(p.description)}</p></span><span class="provider-tail">${good?'<span class="badge good">Connected</span>':`<span class="badge">${p.auth==='google'?'Google account':p.auth==='token'?'Access token':p.client_required?'App setup':'Browser sign-in'}</span>`}<span class="arrow" aria-hidden="true">›</span></span></button></li>`;
   }).join('') || `<li class="empty"><h2>${tab==='connected'?'No matching connections':'No matching services'}</h2><p>${tab==='connected'?'Connect an app from the catalog, or change your filters.':'Try another name, or add a custom connection.'}</p></li>`;
-  if(tab==='connected') state.connections.filter(c=>c.provider==='custom').forEach(c=>{
+  if(tab==='connected' && category==='All categories') state.connections.filter(c=>c.provider==='custom'&&(!query||c.label.toLowerCase().includes(query.toLowerCase()))).forEach(c=>{
+    $('#providers .empty')?.remove();
     $('#providers').insertAdjacentHTML('beforeend',`<li class="provider-row"><button class="provider-select" data-provider="custom">${icon('custom')}<span class="provider-text"><strong>${esc(c.label)}</strong><p>Custom service</p></span>${badge(c)}</button></li>`);
   });
 }
@@ -62,8 +73,8 @@ function renderDetail() {
   const accounts=state.connections.filter(c=>c.provider===p.id);
   const google=p.auth==='google';
   const setup=google&&!state.google_configured;
-  $('#detail').innerHTML=`${icon(p.id,true)}<h2>${esc(p.name)}</h2><p class="description">${esc(p.description)}</p><div class="detail-divider"></div>
-    <div class="feature-label">${google?'WHAT ECHO CAN ACCESS':'HOW IT CONNECTS'}</div><ul class="permission-list">${google?'<li>Read the account you choose</li><li>No sending, deleting, or modifying</li>':'<li>Sign in directly with the provider</li><li>Review access before connecting</li><li>Tools become available to Echo</li>'}</ul>
+  $('#detail').innerHTML=`<button class="detail-back" data-action="back-catalog">← All connections</button><div class="detail-heading">${icon(p.id,true)}<span class="badge">${google?'Google account':p.id==='custom'?'Custom service':'MCP connection'}</span></div><h2>${esc(p.name)}</h2><p class="description">${esc(p.description)}</p><div class="detail-divider"></div>
+    <div class="feature-label">${google?'Included access':'Connection details'}</div><ul class="permission-list">${google?'<li>Read the account you choose</li><li>No sending, deleting, or modifying</li>':'<li>Choose the account Echo can use</li><li>Review your provider’s permissions</li>'}</ul>
     ${p.note?`<div class="inline-info">${esc(p.note)}</div>`:''}
     ${accounts.map(c=>`<section class="account-row"><div class="account-name">${esc(c.label)}</div>${badge(c)}<p class="mini-label">${c.tool_count} tools · ${c.checked?'Checked '+esc(date(c.checked)):'Not verified yet'}</p>${c.error?`<p class="error">${esc(c.error)}</p>`:''}<div class="button-group"><button class="button sm" data-connection="${esc(c.id)}" data-action="check">Check</button><button class="button sm" data-connection="${esc(c.id)}" data-action="${c.enabled?'pause':'resume'}">${c.enabled?'Pause':'Resume'}</button><button class="button sm" data-connection="${esc(c.id)}" data-action="reconnect">Reconnect</button><button class="button sm danger" data-connection="${esc(c.id)}" data-action="disconnect">Remove</button></div></section>`).join('')}
     ${setup?'<div class="inline-info"><strong>One-time Google setup</strong>Add your Google app credentials once, then use browser sign-in for Gmail, Calendar, and Drive.</div><button class="button primary full" data-view="settings">Set up Google <span aria-hidden="true">↗</span></button>':`
@@ -72,7 +83,7 @@ function renderDetail() {
     <div id="token-field" ${p.auth!=='token'?'hidden':''}><div class="field"><label for="access-token">Access token</label><input id="access-token" name="token" type="password" autocomplete="off" ${p.auth==='token'?'required':''}><p class="help">Stored privately on this Mac. Never sent to the model.</p></div></div>
     ${!google&&p.auth!=='token'?`<details id="oauth-settings" ${p.client_required?'open':''}><summary>${p.client_required?'Required app credentials':'Advanced: use your own OAuth app'}</summary><div class="field"><label for="oauth-client">Client ID</label><input id="oauth-client" name="client_id" ${p.client_required?'required':''} autocomplete="off"></div><div class="field"><label for="oauth-secret">Client secret</label><input id="oauth-secret" name="client_secret" type="password" ${p.client_required?'required':''} autocomplete="off"></div><p class="help">Register this callback with the provider:</p><code>${esc(state.mcp_redirect)}</code></details>`:''}
     <div id="form-error" class="error" role="alert" hidden></div><button class="button primary full" type="submit">${accounts.length?'Connect another account':google?'Continue with Google':'Connect '+esc(p.name)} <span aria-hidden="true">↗</span></button></form>`}
-    <div id="flow-status" role="status" aria-live="polite"></div><p class="detail-note">${google?'Google sign-in opens in a new tab.':'Your provider may require an eligible plan or administrator access.'} ${p.docs?`<a href="${esc(p.docs)}" target="_blank" rel="noopener noreferrer">Setup guide ↗</a>`:''}</p><div class="detail-divider"></div><p class="detail-note">Credentials stay in your main Mac login. Connecting an account does not switch off Echo’s action checks.</p>`;
+    <div id="flow-status" role="status" aria-live="polite"></div><p class="detail-note">${google?'Google sign-in opens in a new tab.':'Your provider may require an eligible plan or administrator access.'} ${p.docs?`<a href="${esc(p.docs)}" target="_blank" rel="noopener noreferrer">Setup guide ↗</a>`:''}</p><div class="detail-divider"></div><p class="detail-note">Stored on your Mac. Echo still checks each action before using a connection.</p>`;
 }
 function settings() {
   main.innerHTML=heading('Settings','A few things that keep your workspace yours.')+
@@ -121,10 +132,11 @@ document.addEventListener('click', async event=>{
   if(event.target.closest('.brand')) {event.preventDefault();navigate('connections');return;}
   const el=event.target.closest('button');if(!el)return;
   if(el.dataset.view) {navigate(el.dataset.view);return;}
-  if(el.dataset.provider) {selected=el.dataset.provider;if(view!=='connections'){navigate('connections');}else{renderDetail();renderProviders();}if(innerWidth<650)$('#detail').scrollIntoView({behavior:'auto',block:'start'});return;}
+  if(el.dataset.provider) {selected=el.dataset.provider;if(view!=='connections'){navigate('connections');}else{renderDetail();renderProviders();}main.classList.add('show-detail');if(innerWidth<760)$('#detail').scrollIntoView({behavior:'auto',block:'start'});return;}
   if(el.dataset.tab) {tab=el.dataset.tab;connections();return;}
   const action=el.dataset.action||(el.id==='refresh'?'refresh':null);if(!action)return;
   try {
+    if(action==='back-catalog'){main.classList.remove('show-detail');$('#search').focus({preventScroll:true});return;}
     if(action==='refresh'){el.disabled=true;await refresh();toast('Workspace refreshed.');}
     else if(action==='copy-google'){await navigator.clipboard.writeText(state.google_redirect);toast('Redirect URI copied.');}
     else if(action==='logout'){await api('logout',{});locked('You are signed out. Your agent keeps running.');}
@@ -156,6 +168,10 @@ document.addEventListener('submit', async event=>{
   finally{busy=false;if(button.isConnected)button.disabled=false;}
 });
 (async()=>{
+  if(location.protocol==='file:') {
+    state=null;$('#agent-status').textContent='Local file';
+    main.innerHTML=`<section class="locked"><div class="eyebrow">OPEN YOUR WORKSPACE</div><h1>Echo runs in your browser.</h1><p>This is the app’s source file. Open the running dashboard to connect your accounts.</p><a class="button primary" href="http://127.0.0.1:8877/app/">Open Echo dashboard ↗</a><p class="help">If you need to sign in or use a different port, open <strong>scripts → Echo Dashboard.command</strong> on your main Mac login.</p></section>`;return;
+  }
   try {
     const token=new URLSearchParams(location.hash.slice(1)).get('token');
     if(token){history.replaceState(null,'',location.pathname);await api('session',{token});}

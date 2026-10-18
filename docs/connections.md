@@ -15,6 +15,10 @@ launcher when it expires. The agent must already be installed and running; use
 Setup Echo's status/restart options if the page cannot load. No Node build,
 separate server, cloud hosting, or Echo-login setup is required.
 
+Open the dashboard launcher rather than the repository’s `index.html`. The HTML
+file shows an opening guide when viewed directly; account connections require the
+running agent.
+
 The dashboard is local to this Mac, not a website accessible from your phone.
 Both macOS logins still need to remain signed in for the agent and iMessage
 bridge to work. Closing the dashboard or its Terminal launcher does not stop them.

@@ -71,6 +71,26 @@ class DashboardTests(unittest.TestCase):
         self.post('/app/logout', {})
         self.assertEqual(self.get().status_code, 401)
 
+    def test_relative_assets_load_from_dashboard_and_exist_next_to_source(self):
+        from echo.dashboard.app import STATIC
+        from html.parser import HTMLParser
+        assets = []
+        class Parser(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'script':
+                    assets.append(attrs['src'])
+                elif tag == 'link' and attrs.get('rel') == 'stylesheet':
+                    assets.append(attrs['href'])
+        with self.get('/app/') as response:
+            Parser().feed(response.text)
+        self.assertEqual(set(assets), {'app.css', 'app.js'})
+        for asset in assets:
+            self.assertTrue((STATIC / asset).is_file())
+            with self.get('/app/' + asset) as response:
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.text, (STATIC / asset).read_text())
+
     def test_catalog_and_existing_connections_do_not_expose_credentials(self):
         self.login()
         (self.root/'mcp.json').write_text(json.dumps({'servers': {'echo_codex': {'url':'http://127.0.0.1:8878/mcp', 'headers': {'Authorization': 'hidden-legacy-secret'}, 'env': {'TOKEN':'hidden-env'}}}}))
