@@ -14,6 +14,7 @@ from openai import OpenAI
 from echo.agent.budget import Budget, BudgetExceeded
 from echo.agent.processor import INSTRUCTIONS
 from echo.agent.tasks import TERMINAL
+from echo.agent.decisions import proposal_tools, review
 from echo.tools.client import configured_servers, connect
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ POLICY = (
     'Native computer use is available only if a configured tool provides it. '
     'Codex jobs are tracked automatically; do not poll them yourself. '
     'Stop and report any blocker. Keep the final result concise for iMessage.'
+    ' Every tool proposal must include arguments and a brief rationale describing the intended effect '
+    'and how the user request authorizes it. This is a short action justification, not a private reasoning trace. '
+    'A separate decision check handles action confirmation; propose the concrete action rather than asking redundant permission.'
 )
 
 
@@ -191,6 +195,8 @@ class Coordinator:
         revision = self.sync_updates(task_id, history, row['seen_revision'])
         async with task_connections() as stack:
             tools, routes = await discover(stack, stable=True)
+            definitions = {tool['name']: tool for tool in tools}
+            tools = proposal_tools(tools)
             # Approved calls resume the exact saved arguments before another model turn.
             with self.store.db() as db:
                 approved = [dict(action) for action in db.execute(
@@ -245,12 +251,16 @@ class Coordinator:
                     route = routes.get(call.name)
                     if not route:
                         raise ValueError('Unknown tool')
-                    args = json.loads(call.arguments)
-                    if not isinstance(args, dict):
-                        raise ValueError('Invalid tool arguments')
+                    proposal = json.loads(call.arguments)
+                    if (not isinstance(proposal, dict) or set(proposal) != {'arguments', 'rationale'}
+                            or not isinstance(proposal['arguments'], dict)
+                            or not isinstance(proposal['rationale'], str) or not proposal['rationale'].strip()):
+                        raise ValueError('Invalid action proposal')
+                    args, rationale = proposal['arguments'], proposal['rationale']
                     key = task_id + ':' + call.call_id
                     try:
-                        output, job_waiting = await self.call_tool(task_id, key, route, args, deadline, history, revision)
+                        output, job_waiting = await self.call_tool(task_id, key, route, args, deadline, history, revision,
+                                                                 rationale, definitions.get(call.name))
                     except Revised:
                         history.append(dict(type='function_call_output', call_id=call.call_id,
                                             output='Not executed: a newer user follow-up arrived.'))
@@ -282,15 +292,25 @@ class Coordinator:
             db.execute('UPDATE tasks SET history=?,seen_revision=? WHERE id=?', (json.dumps(history), latest, task_id))
             return latest
 
-    async def call_tool(self, task_id, key, route, args, deadline, history, revision=None):
+    async def call_tool(self, task_id, key, route, args, deadline, history, revision=None, rationale='', tool_info=None):
         self.check(task_id, deadline)
         current = self.store.task(task_id)
+        if revision is not None and current['revision'] != revision:
+            raise Revised()
         if current['tool_calls'] >= int(os.environ.get('ECHO_MAX_TOOL_CALLS', '12')):
             raise BudgetExceeded('Tool action limit reached')
         encoded = json.dumps(args, sort_keys=True)
-        server, tool, policy = route[2], route[1], route[3]
-        if policy == 'approval' and len(encoded) > 2000:
-            raise ValueError('Tool approval arguments too long to review over iMessage')
+        server, tool = route[2], route[1]
+        revision = current['revision'] if revision is None else revision
+        with self.store.db() as db:
+            previous = db.execute('SELECT * FROM actions WHERE id=?', (key,)).fetchone()
+        decision = None
+        if previous is None:
+            decision = await asyncio.to_thread(review, self.store, task_id, route, args, rationale, tool_info)
+        self.check(task_id, deadline)
+        needs_approval = decision is not None and not decision['allow']
+        if needs_approval and len(encoded) > 8000:
+            raise ValueError('Flagged action is too long to review over iMessage; shorten the proposed action')
         with self.store.db() as db:
             db.execute('BEGIN IMMEDIATE')
             task = db.execute('SELECT status,cancel,revision FROM tasks WHERE id=?', (task_id,)).fetchone()
@@ -305,11 +325,13 @@ class Coordinator:
                 if previous['status'] not in ('approved', 'completed'):
                     raise RuntimeError('Previous action outcome unresolved')
             else:
+                db.execute('INSERT INTO action_decisions VALUES (?,?,?,?,?,?)',
+                           (key, task_id, revision, rationale, json.dumps(decision), time.time()))
                 db.execute('INSERT INTO actions VALUES (?,?,?,?,?,?,?,?)',
                            (key, task_id, server, tool, encoded,
-                            'approval_required' if policy == 'approval' else 'started', None, time.time()))
-                if policy == 'approval':
-                    prompt = ('This tool action needs approval: ' + server + '/' + tool + '\n' + encoded +
+                            'approval_required' if needs_approval else 'started', None, time.time()))
+                if needs_approval:
+                    prompt = (decision['reason'] + '\nProposed action: ' + server + '/' + tool + '\n' + encoded +
                               '\nReply approve ' + approval_id(key) + ' to run these exact arguments, or cancel.')
                     db.execute("UPDATE tasks SET status='awaiting_input',history=? WHERE id=? AND cancel=0",
                                (json.dumps(history), task_id))
@@ -317,7 +339,7 @@ class Coordinator:
                                (key + ':approval', task_id, 'approval', prompt, 1, 'pending', time.time()))
             if previous and previous['status'] == 'approved':
                 db.execute("UPDATE actions SET status='started' WHERE id=?", (key,))
-        if not previous and policy == 'approval':
+        if not previous and needs_approval:
             raise Approval()
         if previous and previous['status'] == 'completed':
             output = json.loads(previous['result'])

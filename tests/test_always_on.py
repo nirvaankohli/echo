@@ -35,7 +35,8 @@ def response(text='', calls=()):
 class Call:
     type = 'function_call'
     def __init__(self, name='start', call_id='c1', args=None):
-        self.name, self.call_id, self.arguments = name, call_id, json.dumps(args or {})
+        self.name, self.call_id, self.arguments = name, call_id, json.dumps(
+            {'arguments': args or {}, 'rationale': 'This action fulfills the user request.'})
     def model_dump(self, **kwargs):
         return dict(type=self.type, name=self.name, call_id=self.call_id, arguments=self.arguments)
 
@@ -53,6 +54,10 @@ class AlwaysOnTests(unittest.TestCase):
                                            'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}'}, clear=False)
         self.env.start()
         self.addCleanup(self.env.stop)
+        gate = patch('echo.agent.coordinator.review', side_effect=lambda store, task, route, *args:
+                     {'allow': route[3] != 'approval', 'reason': 'Test decision requires confirmation.'})
+        gate.start()
+        self.addCleanup(gate.stop)
         self.tasks = Tasks(self.path / 'tasks.db')
         self.memory = Memory(self.path / 'memory.db')
         self.coordinator = Coordinator(self.tasks, self.memory)
@@ -349,7 +354,7 @@ class AlwaysOnTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             asyncio.run(self.coordinator.call_tool('task1', 'task1:c1', (remote, 'write', 'docs', 'private_write'), {}, time.monotonic()+10, []))
         with self.assertRaises(ValueError):
-            asyncio.run(self.coordinator.call_tool('task1', 'task1:c2', (remote, 'write', 'docs', 'approval'), {'body': 'x'*3000}, time.monotonic()+10, []))
+            asyncio.run(self.coordinator.call_tool('task1', 'task1:c2', (remote, 'write', 'docs', 'approval'), {'body': 'x'*9000}, time.monotonic()+10, []))
         self.assertEqual(remote.call_tool.call_count, 1)
 
     def test_quick_codex_completion_during_wait_transition_is_not_lost(self):

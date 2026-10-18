@@ -27,6 +27,10 @@ class Tasks(Queue):
                     tool TEXT NOT NULL, arguments TEXT NOT NULL, status TEXT NOT NULL,
                     result TEXT, created REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS action_decisions (
+                    action_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, revision INTEGER NOT NULL,
+                    rationale TEXT NOT NULL, decision TEXT NOT NULL, created REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS jobs (
                     id TEXT PRIMARY KEY, task_id TEXT NOT NULL, server TEXT NOT NULL,
                     job_id TEXT NOT NULL, status TEXT NOT NULL, result TEXT,

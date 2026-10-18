@@ -67,7 +67,7 @@ document” can refer to Echo's previous draft. Completed-task follow-ups may cr
 a new internal work item with the same chat context; they do not reset the conversation.
 
 Corrections invalidate outdated model proposals and not-yet-started approvals.
-Changed tool arguments require a new approval where the tool policy requires one.
+Changed tool arguments receive a new decision check, which may request approval.
 A casual `yes` never approves a saved tool action. Already-started actions cannot
 be undone: a running external Codex job finishes first, and its saved follow-up is
 applied when Echo resumes. Echo tells you that limitation instead of starting a
@@ -82,50 +82,46 @@ appear in a request. ChatGPT/Codex app connections are not imported automaticall
 A native desktop automation tool may need the correct user session active and
 unlocked; Fast User Switching is not a promise that every GUI tool will work.
 
-Tools marked read-only can be used without a separate approval. Unknown or
-sensitive tools require approval unless the local configuration grants a specific
-policy. A server's `tool_policy` maps exact MCP tool names to `read`,
-`private_write`, or `approval`, for example:
+Every new model-proposed tool action passes through the dedicated
+[OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions).
+The check receives the original user request, follow-ups, recent conversation,
+main model plan, a brief action rationale, and the exact tool name and arguments.
+The rationale is an explicit action justification, not hidden chain-of-thought.
+The decision compares it with the actual request rather than treating the model's
+claim of authorization as permission.
 
-```json
-{
-  "servers": {
-    "documents": {
-      "url": "https://your-provider.example/mcp",
-      "header_env": {"Authorization": "DOCUMENTS_MCP_AUTH"},
-      "tool_policy": {
-        "get_document": "read",
-        "create_private_document": "private_write",
-        "share_document": "approval"
-      }
-    }
-  }
-}
-```
+A safe, authorized action with an allow confidence of at least 0.85 runs immediately.
+This includes creating a requested local file through Codex. Other choices,
+low confidence, a refusal, unavailable API, or an exhausted review budget ask you
+for confirmation. This threshold is an application default, not a calibrated
+safety guarantee. The prompt checks scope, destructive changes, private data,
+security changes, and external effects. A decision check cannot guarantee that
+arbitrary delegated code or tools will behave safely; the Codex sandbox remains.
 
-These are illustrative names, not installed tools. Only grant `private_write` to
-an audited tool whose scope you understand. A broad tool may also share or delete
-content depending on its arguments. Tool descriptions, source documents, and
-retrieved memories are data, not permission to take unrelated actions.
+The approval message includes the concern and exact arguments. Reply with its
+`approve <code>` to run that saved action, or cancel. A changed request invalidates
+not-yet-started approvals and any in-flight decision. Successful action checkpoints
+and exact human approvals are reused without buying another decision call.
+Flagged arguments over 8,000 characters stop for a shorter proposal instead of
+showing a truncated approval. The main model's rationale is stripped before
+calling the MCP tool.
 
-The built-in local Codex worker can write within its configured workspace. The
-remote `echo_codex` connection requires approval by default. To authorize workspace
-jobs without a new approval every time, explicitly add this policy inside that
-trusted server's configuration:
+Existing `tool_policy` values (`read`, `private_write`, `approval`) remain compatible
+but serve only as tool hints to the decision check. They neither automatically
+approve nor automatically block new model-proposed actions. No MCP configuration
+edit is required for this change. The built-in job monitor's status checks do not
+make a decision API call on each poll.
 
-```json
-"tool_policy": {
-  "codex_start": "private_write",
-  "codex_status": "read",
-  "codex_jobs": "read"
-}
-```
+The endpoint uses `gpt-6-luna` by default. The 2.x OpenAI SDK's authenticated HTTP
+method calls `/decisions` directly, so this does not require upgrading the rest of
+the SDK to 3.x. Decisions and main-model calls share the task and daily budget.
+For a dollar cap, configure a separate `decisions/gpt-6-luna` entry in
+`ECHO_MODEL_PRICES` using verified Decisions API rates, rather than Responses
+rates for that model. Missing usage retains the conservative reservation.
 
-Only grant this to your actual Echo worker. Approval requests show the exact saved
-arguments; requests too large to review in the message are refused instead of
-silently approving hidden argument content. The worker's sandbox
-and separate Codex authentication remain in force. Echo cannot undo already
-completed actions by cancelling the task.
+Private `action_decisions` records in `tasks.sqlite3` retain the action's rationale,
+revision, model verdict, confidence, and any error type. They join to the exact
+arguments in `actions`; neither is published to the deployment log.
 
 ## Notifications and completion
 
@@ -202,6 +198,7 @@ The defaults are configuration choices, not a quoted monthly price:
 | `OPENAI_PLANNER_MODEL` | `gpt-4.1` | Plan work requests. |
 | `OPENAI_WORKER_MODEL` | `gpt-4.1-mini` | Execute task steps and produce answers. |
 | `OPENAI_CONVERSATION_MODEL` | Worker model | Answer ordinary chat and route work/follow-ups in one call. |
+| `OPENAI_DECISION_MODEL` | `gpt-6-luna` | Review each new tool action through the Decisions API. |
 | `OPENAI_NOTIFICATION_MODEL` | `gpt-4.1-mini` | Judge supported non-routine events. |
 | `ECHO_MAX_ROUNDS` | `8` | Maximum worker response rounds per task. |
 | `ECHO_MAX_TOOL_CALLS` | `12` | Maximum tool actions per task. |

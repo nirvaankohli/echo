@@ -26,7 +26,8 @@ def response(text='', calls=()):
 class Call:
     type = 'function_call'
     def __init__(self, call_id='call1'):
-        self.name, self.call_id, self.arguments = 'write', call_id, '{"title":"Old title"}'
+        self.name, self.call_id, self.arguments = 'write', call_id, json.dumps(
+            {'arguments': {'title': 'Old title'}, 'rationale': 'Create the requested document.'})
     def model_dump(self, **kwargs):
         return dict(type=self.type, name=self.name, call_id=self.call_id, arguments=self.arguments)
 
@@ -40,6 +41,9 @@ class ConversationTests(unittest.TestCase):
         self.memory = Memory(self.path / 'memory.db')
         self.coordinator = Coordinator(self.store, self.memory)
         self.chat = Conversation(self.coordinator)
+        gate = patch('echo.agent.coordinator.review', return_value={'allow': True, 'reason': 'Allowed test action.'})
+        gate.start()
+        self.addCleanup(gate.stop)
         env = patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '200000', 'ECHO_DAILY_TOKEN_LIMIT': '2000000',
                                       'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}'})
         env.start()
