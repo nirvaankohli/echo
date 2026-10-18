@@ -217,6 +217,20 @@ class AlwaysOnTests(unittest.TestCase):
             with self.assertRaises(ExceptionGroup):
                 asyncio.run(run(signal, cleanup))
 
+    def test_repaired_approval_task_can_deliver_completion_after_old_failure(self):
+        self.submit()
+        self.tasks.change('task1', status='failed')
+        # A pre-fix failure was already delivered under the old final notification ID.
+        self.tasks.event('task1:final', 'task1', 'failed', 'Old incorrect failure', promised=True)
+        self.coordinator.events_once()
+        self.tasks.acknowledge('task1:final', 'sent')
+        self.tasks.change('task1', status='awaiting_input')  # Only a verified repair restores this state.
+        self.tasks.finish('task1', 'completed', 'Essay saved')
+        self.coordinator.events_once()
+        completions = [row for row in self.tasks.outbox() if row['text'] == 'Essay saved']
+        self.assertEqual(len(completions), 1)
+        self.assertNotEqual(completions[0]['id'], 'task1:final')
+
     def test_tool_failure_has_uncertain_outcome_never_replayed(self):
         self.submit()
         self.tasks.claim()

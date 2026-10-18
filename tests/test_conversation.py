@@ -101,7 +101,7 @@ class ConversationTests(unittest.TestCase):
         self.store.submit('old', 'owner', 'Earlier request', None)
         self.store.finish('old', 'completed', 'Earlier exact answer')
         self.coordinator.events_once()
-        self.store.acknowledge('old:final', 'sent')
+        self.store.acknowledge('old:final:completed', 'sent')
         with self.store.db() as db:
             db.execute('DELETE FROM conversation_messages')  # Simulate a pre-conversation database.
         for _ in range(2):

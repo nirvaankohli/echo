@@ -147,8 +147,9 @@ class Tasks(Queue):
                 status, text = 'cancelled', 'Task cancelled. Already-started external actions may still have taken effect.'
             db.execute('UPDATE tasks SET status=?,result=?,updated=? WHERE id=?',
                        (status, text, time.time(), task_id))
+            # A repaired task's success must not reuse an already-delivered failure's ID.
             db.execute('INSERT OR IGNORE INTO events(id,task_id,kind,text,promised,status,created) VALUES (?,?,?,?,?,?,?)',
-                       (task_id + ':final', task_id, status, text[:12000], 1, 'pending', time.time()))
+                       (task_id + ':final:' + status, task_id, status, text[:12000], 1, 'pending', time.time()))
         return True
 
     def cancel(self, task_id):
