@@ -144,11 +144,13 @@ The rationale is an explicit action justification, not hidden chain-of-thought.
 The decision compares it with the actual request rather than treating the model's
 claim of authorization as permission.
 
-A safe, authorized action with an allow confidence of at least 0.85 runs immediately.
-This includes creating a requested local file through Codex. Other choices,
-low confidence, a refusal, unavailable API, or an exhausted review budget ask you
-for confirmation. This threshold is an application default, not a calibrated
-safety guarantee. The prompt checks scope, destructive changes, private data,
+A valid `allow` decision runs immediately. Confidence is recorded for auditing;
+there is no additional confidence cutoff that overrides an allow verdict.
+The policy favors routine, reversible work within your request, including requested
+file edits, bounded Codex jobs, and reminders. Ordinary implementation details do
+not need separate permission. A flagged or uncertain verdict, refusal, malformed
+response, unavailable API, or exhausted review budget still asks for confirmation.
+The prompt checks scope, destructive changes, private data,
 security changes, and external effects. A decision check cannot guarantee that
 arbitrary delegated code or tools will behave safely; the Codex sandbox remains.
 

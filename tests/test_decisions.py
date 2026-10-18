@@ -90,10 +90,28 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(len(self.requests), 1)  # Human approves the saved exact action, no second decision loop.
         self.remote.call_tool.assert_called_once()
 
-    def test_refusal_malformed_and_low_confidence_never_allow(self):
+    def test_allow_verdict_is_not_overridden_by_confidence_cutoff(self):
+        self.answer['confidence'] = 0.47
+        self.act()
+        self.remote.call_tool.assert_called_once()
+        self.assertEqual(self.store.events(), [])
+        with self.store.db() as db:
+            decision = json.loads(db.execute('SELECT decision FROM action_decisions').fetchone()[0])
+        self.assertTrue(decision['allow'])
+        self.assertEqual(decision['confidence'], 0.47)
+
+    def test_flagged_verdict_still_asks_at_any_confidence(self):
+        for choice in ('ask_risk', 'ask_authorization', 'ask_uncertain'):
+            for confidence in (0.2, 0.99):
+                with self.subTest(choice=choice, confidence=confidence):
+                    self.answer.update(choice=choice, confidence=confidence)
+                    verdict = review(self.store, 'task', self.route, {'path': 'essay.txt'}, 'Requested file.')
+                    self.assertFalse(verdict['allow'])
+
+    def test_refusal_and_malformed_results_never_allow(self):
         cases = [dict(type='refusal', name='action_gate'),
                  dict(type='choice', name='wrong', choice='allow', confidence=1),
-                 dict(type='choice', name='action_gate', choice='allow', confidence=0.3),
+                 dict(type='choice', name='action_gate', choice='allow', confidence=-0.1),
                  dict(type='choice', name='action_gate', choice='allow', confidence=True),
                  dict(type='choice', name='action_gate', choice='unknown', confidence=1)]
         for answer in cases:
