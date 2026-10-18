@@ -141,5 +141,44 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.post('/app/api/connections', {'provider':'github','token':'a\nb'}).status_code, 400)
         self.assertEqual(self.store.all(), [])
 
+    def test_multiple_accounts_rename_and_remove_are_isolated(self):
+        self.login()
+        with patch.object(self.manager, 'begin', return_value='flow'):
+            home = self.post('/app/api/connections', {'provider':'github','label':'Home','token':'home-secret'}).json['id']
+            school = self.post('/app/api/connections', {'provider':'github','label':'School','token':'school-secret'}).json['id']
+        self.assertNotEqual(home, school)
+        for id in (home, school):
+            self.store.update(id, enabled=1, status='connected')
+        self.assertEqual(self.post(f'/app/api/connections/{school}/rename', {'label':' College '}).status_code, 200)
+        self.assertEqual(self.store.get(school)['label'], 'College')
+        self.assertIn('College', self.store.configs()['account_'+school]['display_name'])
+        self.assertEqual(self.store.secret(school+':bearer')['token'], 'school-secret')
+        self.post(f'/app/api/connections/{home}/pause', {})
+        self.assertEqual(set(self.store.configs()), {'account_'+school})
+        self.post(f'/app/api/connections/{home}/disconnect', {})
+        self.assertIsNone(self.store.secret(home+':bearer'))
+        self.assertEqual(self.store.get(school)['status'], 'connected')
+        self.assertEqual(self.store.secret(school+':bearer')['token'], 'school-secret')
+        self.assertNotIn('school-secret', self.get().text)
+
+    def test_account_labels_are_validated_and_default_names_are_distinct(self):
+        self.login()
+        with patch.object(self.manager, 'begin', return_value='flow') as begin:
+            for _ in range(2):
+                self.assertEqual(self.post('/app/api/connections', {'provider':'github','token':'private'}).status_code, 200)
+            first, second = self.store.all()
+            self.assertEqual([first['label'],second['label']], ['GitHub','GitHub 2'])
+            duplicate = self.post('/app/api/connections', {'provider':'github','label':' github ','token':'private'})
+            self.assertEqual(duplicate.status_code, 400)
+            self.assertEqual(begin.call_count, 2)
+        path = f'/app/api/connections/{second["id"]}/rename'
+        for label in (' ', 'x'*81, None, [], 'GITHUB'):
+            self.assertEqual(self.post(path, {'label':label}).status_code, 400)
+        self.assertEqual(self.store.get(second['id'])['label'], 'GitHub 2')
+        self.assertEqual(self.post(path, {'label':'GitHub 2'}).status_code, 200)
+        self.assertEqual(self.post(path, {'label':'Home'}, headers={}).status_code, 403)
+        self.post('/app/logout', {})
+        self.assertEqual(self.post(path, {'label':'Home'}).status_code, 401)
+
 
 if __name__=='__main__': unittest.main()

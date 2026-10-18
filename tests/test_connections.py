@@ -39,6 +39,7 @@ class ConnectionTests(unittest.TestCase):
         args = parse_qs(urlsplit(flow['url']).query)
         self.assertEqual(args['code_challenge_method'], ['S256'])
         self.assertEqual(args['access_type'], ['offline'])
+        self.assertEqual(set(args['prompt'][0].split()), {'select_account', 'consent'})
         self.assertIn('gmail.readonly', args['scope'][0])
         for session, state in [('other-browser',flow['state']), ('browser-session','wrong-state')]:
             with self.assertRaises(ValueError):
@@ -146,6 +147,43 @@ class ConnectionTests(unittest.TestCase):
         with patch.object(client,'get',return_value=Mock(json=lambda:{'id':'email','payload':{},'snippet':'Hello'})) as get:
             asyncio.run(client.call_tool('read_email',{'message_id':'a/b?c'}))
         self.assertTrue(get.call_args.args[0].endswith('a%2Fb%3Fc'))
+
+    def test_same_provider_oauth_flows_and_credentials_do_not_cross_accounts(self):
+        home = self.google()
+        school = self.store.add('gmail','School','','google')
+        keys = [self.manager.begin(id, 'browser') for id in (home, school)]
+        flows = [self.manager.flows[key] for key in keys]
+        self.assertNotEqual(flows[0]['state'], flows[1]['state'])
+        for flow, access in zip(reversed(flows), ('school-token','home-token')):
+            with patch('echo.connections.oauth.threading.Thread'):
+                self.manager.callback({'code':access,'state':flow['state']}, 'browser','google')
+            with patch('echo.connections.oauth.request', return_value=Mock(json=lambda:{
+                    'access_token':access,'refresh_token':access+'-refresh','scope':flow['scope']})), \
+                 patch.object(GoogleClient,'verify'):
+                self.manager._google_callback(flow)
+        self.assertEqual(token(self.store,home), 'home-token')
+        self.assertEqual(token(self.store,school), 'school-token')
+        self.store.remove(home)
+        self.assertEqual(token(self.store,school), 'school-token')
+
+    def test_multi_account_tools_keep_routes_and_names_when_renamed(self):
+        home = self.google()
+        school = self.store.add('gmail','School','','google')
+        for id in (home, school): self.store.update(id,enabled=1,status='connected')
+        async def listing():
+            from contextlib import AsyncExitStack
+            with patch('echo.tools.client.configured_servers', return_value=self.store.configs()):
+                async with AsyncExitStack() as stack: return await discover(stack,stable=True)
+        tools, routes = asyncio.run(listing())
+        self.assertEqual(len({tool['name'] for tool in tools}), 4)
+        self.assertEqual({route[2] for route in routes.values()}, {'account_'+home, 'account_'+school})
+        self.assertTrue(any('Gmail / School:' in tool['description'] for tool in tools))
+        self.store.rename(school, 'College')
+        renamed, new_routes = asyncio.run(listing())
+        self.assertEqual(set(routes), set(new_routes))
+        self.assertTrue(any('Gmail / College:' in tool['description'] for tool in renamed))
+        for name, route in routes.items():
+            self.assertEqual(route[2], new_routes[name][2])
 
 
 if __name__=='__main__': unittest.main()

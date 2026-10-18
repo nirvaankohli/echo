@@ -58,6 +58,28 @@ and [refresh-token expiration](https://developers.google.com/identity/protocols/
 
 ## Provider catalog
 
+### School, Home, and other accounts
+
+Every provider, including a custom MCP server, can have multiple accounts.
+Choose a service, open **Add another account**, give it a label such as **School**
+or **Home**, and complete sign-in with that account (or supply its own access
+token). Google explicitly shows its account chooser. For other OAuth providers,
+use their account/workspace switcher during sign-in. When Google is in Testing,
+add each Google email as a test user; school administrators may restrict access.
+
+**Your connections** lists accounts individually. Search by label, select an
+account, or use **Rename** to change its label without reconnecting. Labels must
+be distinct within a service; unnamed accounts get numbered names. Pause,
+reconnect, check, and remove apply only to the selected account.
+
+Text Echo “Summarize unread emails in School Gmail” or “Check my Home calendar.”
+Each account has separate credentials and tool routes. The agent sees both the
+service and label, and is instructed to ask when the account is unclear rather
+than mix accounts. Renaming takes effect for new tasks without changing saved
+tool identities. Each Google service still needs its own connection.
+
+### Available services
+
 These are connection presets for real provider endpoints, not preauthorized
 accounts. Availability, tool coverage, administrator approval, and paid-plan
 requirements are controlled by each provider. Each detail panel links its setup

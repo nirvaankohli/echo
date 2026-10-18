@@ -112,7 +112,7 @@ class ConnectionManager:
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
             flow['url'] = 'https://accounts.google.com/o/oauth2/v2/auth?'+urlencode(dict(
                 client_id=client['client_id'], redirect_uri=self.base_url+'/app/oauth/google/callback',
-                response_type='code', scope=scope, state=flow['state'], access_type='offline', prompt='consent',
+                response_type='code', scope=scope, state=flow['state'], access_type='offline', prompt='select_account consent',
                 code_challenge=challenge, code_challenge_method='S256'))
         else:
             threading.Thread(target=self._check, args=(flow,), daemon=True).start()

@@ -2,7 +2,7 @@
 const $ = (s, root=document) => root.querySelector(s);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const marks = {gmail:'M','google-calendar':'31','google-drive':'△',notion:'N',linear:'◒',github:'GH',atlassian:'A',asana:'∴',figma:'F',canva:'C',webflow:'W',stripe:'S',hubspot:'H',sentry:'S',cloudflare:'☁',custom:'+'};
-let state, view='connections', selected='gmail', query='', category='All categories', tab='all', busy=false, noticeTimer;
+let state, view='connections', selected='gmail', selectedAccount=null, query='', category='All categories', tab='all', busy=false, noticeTimer;
 const main = $('#main');
 const svg = paths => `<svg viewBox="0 0 24 24" class="ui-icon" aria-hidden="true">${paths}</svg>`;
 const providerArt = {
@@ -48,7 +48,7 @@ function draw() {
 }
 function connections() {
   const connected=state.connections.filter(c=>c.enabled&&c.status==='connected');
-  const chips=[...connected.map(c=>`<button class="strip-connection" data-provider="${esc(c.provider)}"><span class="tiny-dot"></span>${esc(c.label)}</button>`),
+  const chips=[...connected.map(c=>`<button class="strip-connection" data-provider="${esc(c.provider)}" data-account="${esc(c.id)}"><span class="tiny-dot"></span>${esc(c.label)}</button>`),
     ...state.existing.map(c=>`<span class="strip-connection">${esc(c.label)} <span class="badge">${c.enabled?'Configured':'Paused'}</span></span>`)];
   main.innerHTML=heading('Connections','Your apps, working together with Echo.', '<button class="button" data-provider="custom"><span aria-hidden="true">＋</span> Custom connection</button>')+
     `<section class="connected-strip" aria-label="Current connections"><span class="strip-title">In your workspace</span>${chips.join('')||'<span class="strip-empty">Your first connection starts below.</span>'}</section>
@@ -58,15 +58,26 @@ function connections() {
   renderProviders(); renderDetail();
 }
 function renderProviders() {
-  const providers=state.providers.filter(p=>(!query||`${p.name} ${p.description}`.toLowerCase().includes(query.toLowerCase()))&&(category==='All categories'||p.category===category)&&(tab==='all'||state.connections.some(c=>c.provider===p.id)));
+  if(tab==='connected') {
+    const accounts=state.connections.filter(c=>{
+      const p=state.providers.find(p=>p.id===c.provider);
+      return (!query||`${c.label} ${p?.name||'Custom MCP'}`.toLowerCase().includes(query.toLowerCase()))&&(category==='All categories'||p?.category===category);
+    });
+    $('#providers').innerHTML=accounts.map(c=>{
+      const p=state.providers.find(p=>p.id===c.provider);
+      return `<li class="provider-row"><button class="provider-select ${selectedAccount===c.id?'active':''}" data-provider="${esc(c.provider)}" data-account="${esc(c.id)}" aria-pressed="${selectedAccount===c.id}">${icon(c.provider)}<span class="provider-text"><strong>${esc(c.label)}</strong><p>${esc(p?.name||'Custom MCP')}</p></span>${badge(c)}</button></li>`;
+    }).join('')||'<li class="empty"><h2>No matching accounts</h2><p>Connect an account from All apps, or change your filters.</p></li>';
+    return;
+  }
+  const providers=state.providers.filter(p=>(!query||`${p.name} ${p.description} ${state.connections.filter(c=>c.provider===p.id).map(c=>c.label).join(' ')}`.toLowerCase().includes(query.toLowerCase()))&&(category==='All categories'||p.category===category));
   $('#providers').innerHTML=providers.map(p=>{
-    const good=state.connections.find(c=>c.provider===p.id&&c.enabled&&c.status==='connected');
-    return `<li class="provider-row"><button class="provider-select ${selected===p.id?'active':''}" data-provider="${esc(p.id)}" aria-pressed="${selected===p.id}">${icon(p.id)}<span class="provider-text"><strong>${esc(p.name)}</strong><p>${esc(p.description)}</p></span><span class="provider-tail">${good?'<span class="badge good">Connected</span>':`<span class="badge">${p.auth==='google'?'Google account':p.auth==='token'?'Access token':p.client_required?'App setup':'Browser sign-in'}</span>`}<span class="arrow" aria-hidden="true">›</span></span></button></li>`;
+    const accounts=state.connections.filter(c=>c.provider===p.id);
+    const good=accounts.some(c=>c.enabled&&c.status==='connected');
+    return `<li class="provider-row"><button class="provider-select ${selected===p.id?'active':''}" data-provider="${esc(p.id)}" aria-pressed="${selected===p.id}">${icon(p.id)}<span class="provider-text"><strong>${esc(p.name)}</strong><p>${esc(p.description)}</p>${accounts.length?`<span class="account-count">${accounts.length} ${accounts.length===1?'account':'accounts'} · ${esc(accounts.map(c=>c.label).join(', '))}</span>`:''}</span><span class="provider-tail">${good?'<span class="badge good">Connected</span>':`<span class="badge">${p.auth==='google'?'Google account':p.auth==='token'?'Access token':p.client_required?'App setup':'Browser sign-in'}</span>`}<span class="arrow" aria-hidden="true">›</span></span></button></li>`;
   }).join('') || `<li class="empty"><h2>${tab==='connected'?'No matching connections':'No matching services'}</h2><p>${tab==='connected'?'Connect an app from the catalog, or change your filters.':'Try another name, or add a custom connection.'}</p></li>`;
-  if(tab==='connected' && category==='All categories') state.connections.filter(c=>c.provider==='custom'&&(!query||c.label.toLowerCase().includes(query.toLowerCase()))).forEach(c=>{
-    $('#providers .empty')?.remove();
-    $('#providers').insertAdjacentHTML('beforeend',`<li class="provider-row"><button class="provider-select" data-provider="custom">${icon('custom')}<span class="provider-text"><strong>${esc(c.label)}</strong><p>Custom service</p></span>${badge(c)}</button></li>`);
-  });
+}
+function accountRow(c) {
+  return `<section class="account-row ${selectedAccount===c.id?'selected-account':''}" id="account-${esc(c.id)}" aria-label="${esc(c.label)} account" tabindex="-1"><div class="account-heading"><h3 class="account-name">${esc(c.label)}</h3>${badge(c)}</div><p class="mini-label">${c.tool_count} tools · ${c.checked?'Checked '+esc(date(c.checked)):'Not verified yet'}</p>${c.error?`<p class="error">${esc(c.error)}</p>`:''}<div class="button-group"><button class="button sm" data-connection="${esc(c.id)}" data-action="rename">Rename</button><button class="button sm" data-connection="${esc(c.id)}" data-action="check">Check</button><button class="button sm" data-connection="${esc(c.id)}" data-action="${c.enabled?'pause':'resume'}">${c.enabled?'Pause':'Resume'}</button><button class="button sm" data-connection="${esc(c.id)}" data-action="reconnect">Reconnect</button><button class="button sm danger" data-connection="${esc(c.id)}" data-action="disconnect">Remove</button></div><form class="rename-form" data-account="${esc(c.id)}" hidden><label for="label-${esc(c.id)}">Account label</label><input id="label-${esc(c.id)}" name="label" value="${esc(c.label)}" maxlength="80" required autocomplete="off"><p class="help">Use a distinct name, like School or Home. Echo uses this label to choose the right account.</p><div class="button-group"><button type="submit" class="button sm primary">Save label</button><button type="button" class="button sm" data-action="cancel-rename" data-connection="${esc(c.id)}">Cancel</button></div><p class="error" role="alert" hidden></p></form></section>`;
 }
 function renderDetail() {
   const p=state.providers.find(p=>p.id===selected)||{id:'custom',name:'Custom connection',description:'Connect a remote service using its MCP server address.',auth:'oauth'};
@@ -76,13 +87,14 @@ function renderDetail() {
   $('#detail').innerHTML=`<button class="detail-back" data-action="back-catalog">← All connections</button><div class="detail-heading">${icon(p.id,true)}<span class="badge">${google?'Google account':p.id==='custom'?'Custom service':'MCP connection'}</span></div><h2>${esc(p.name)}</h2><p class="description">${esc(p.description)}</p><div class="detail-divider"></div>
     <div class="feature-label">${google?'Included access':'Connection details'}</div><ul class="permission-list">${google?'<li>Read the account you choose</li><li>No sending, deleting, or modifying</li>':'<li>Choose the account Echo can use</li><li>Review your provider’s permissions</li>'}</ul>
     ${p.note?`<div class="inline-info">${esc(p.note)}</div>`:''}
-    ${accounts.map(c=>`<section class="account-row"><div class="account-name">${esc(c.label)}</div>${badge(c)}<p class="mini-label">${c.tool_count} tools · ${c.checked?'Checked '+esc(date(c.checked)):'Not verified yet'}</p>${c.error?`<p class="error">${esc(c.error)}</p>`:''}<div class="button-group"><button class="button sm" data-connection="${esc(c.id)}" data-action="check">Check</button><button class="button sm" data-connection="${esc(c.id)}" data-action="${c.enabled?'pause':'resume'}">${c.enabled?'Pause':'Resume'}</button><button class="button sm" data-connection="${esc(c.id)}" data-action="reconnect">Reconnect</button><button class="button sm danger" data-connection="${esc(c.id)}" data-action="disconnect">Remove</button></div></section>`).join('')}
+    ${accounts.length?'<div class="feature-label">Your accounts</div>':''}${accounts.map(accountRow).join('')}
     ${setup?'<div class="inline-info"><strong>One-time Google setup</strong>Add your Google app credentials once, then use browser sign-in for Gmail, Calendar, and Drive.</div><button class="button primary full" data-view="settings">Set up Google <span aria-hidden="true">↗</span></button>':`
-    <form id="connect-form"><div class="field"><label for="connection-name">${accounts.length?'Another account':'Connection name'} <span class="small">(optional)</span></label><input id="connection-name" name="label" placeholder="${esc(p.name)}" maxlength="80" autocomplete="off"></div>
+    <details class="add-account" ${accounts.length?'':'open'}><summary>${accounts.length?'Add another account':'Connect an account'}</summary><p class="help account-help">Connect School, Home, or Work separately. Each account keeps its own sign-in and permissions.</p>
+    <form id="connect-form" autocomplete="off"><div class="field"><label for="connection-name">Account label <span class="small">(optional)</span></label><input id="connection-name" name="label" placeholder="e.g. School or Home" maxlength="80" autocomplete="off"><p class="help">Tell Echo which account to use by this name.</p></div>
     ${p.id==='custom'?'<div class="field"><label for="server-url">Server address</label><input id="server-url" name="url" type="url" placeholder="https://service.com/mcp" required><p class="help">Use the remote MCP URL from your provider.</p></div><div class="field"><label for="auth-method">Sign-in method</label><select id="auth-method" name="auth"><option value="oauth">Browser sign-in (OAuth)</option value="token">Access token</option><option value="none">Public, no sign-in</option></select></div>':''}
     <div id="token-field" ${p.auth!=='token'?'hidden':''}><div class="field"><label for="access-token">Access token</label><input id="access-token" name="token" type="password" autocomplete="off" ${p.auth==='token'?'required':''}><p class="help">Stored privately on this Mac. Never sent to the model.</p></div></div>
     ${!google&&p.auth!=='token'?`<details id="oauth-settings" ${p.client_required?'open':''}><summary>${p.client_required?'Required app credentials':'Advanced: use your own OAuth app'}</summary><div class="field"><label for="oauth-client">Client ID</label><input id="oauth-client" name="client_id" ${p.client_required?'required':''} autocomplete="off"></div><div class="field"><label for="oauth-secret">Client secret</label><input id="oauth-secret" name="client_secret" type="password" ${p.client_required?'required':''} autocomplete="off"></div><p class="help">Register this callback with the provider:</p><code>${esc(state.mcp_redirect)}</code></details>`:''}
-    <div id="form-error" class="error" role="alert" hidden></div><button class="button primary full" type="submit">${accounts.length?'Connect another account':google?'Continue with Google':'Connect '+esc(p.name)} <span aria-hidden="true">↗</span></button></form>`}
+    <div id="form-error" class="error" role="alert" hidden></div><button class="button primary full" type="submit">${accounts.length?'Connect another account':google?'Continue with Google':'Connect '+esc(p.name)} <span aria-hidden="true">↗</span></button></form></details>`}
     <div id="flow-status" role="status" aria-live="polite"></div><p class="detail-note">${google?'Google sign-in opens in a new tab.':'Your provider may require an eligible plan or administrator access.'} ${p.docs?`<a href="${esc(p.docs)}" target="_blank" rel="noopener noreferrer">Setup guide ↗</a>`:''}</p><div class="detail-divider"></div><p class="detail-note">Stored on your Mac. Echo still checks each action before using a connection.</p>`;
 }
 function settings() {
@@ -132,7 +144,7 @@ document.addEventListener('click', async event=>{
   if(event.target.closest('.brand')) {event.preventDefault();navigate('connections');return;}
   const el=event.target.closest('button');if(!el)return;
   if(el.dataset.view) {navigate(el.dataset.view);return;}
-  if(el.dataset.provider) {selected=el.dataset.provider;if(view!=='connections'){navigate('connections');}else{renderDetail();renderProviders();}main.classList.add('show-detail');if(innerWidth<760)$('#detail').scrollIntoView({behavior:'auto',block:'start'});return;}
+  if(el.dataset.provider) {selected=el.dataset.provider;selectedAccount=el.dataset.account||null;if(view!=='connections'){navigate('connections');}else{renderDetail();renderProviders();}main.classList.add('show-detail');if(selectedAccount){const account=$('#account-'+selectedAccount);account?.focus({preventScroll:true});account?.scrollIntoView({behavior:'auto',block:'nearest'});}else if(innerWidth<760)$('#detail').scrollIntoView({behavior:'auto',block:'start'});return;}
   if(el.dataset.tab) {tab=el.dataset.tab;connections();return;}
   const action=el.dataset.action||(el.id==='refresh'?'refresh':null);if(!action)return;
   try {
@@ -141,6 +153,7 @@ document.addEventListener('click', async event=>{
     else if(action==='copy-google'){await navigator.clipboard.writeText(state.google_redirect);toast('Redirect URI copied.');}
     else if(action==='logout'){await api('logout',{});locked('You are signed out. Your agent keeps running.');}
     else if(el.dataset.connection) {
+      if(action==='rename'||action==='cancel-rename') {const form=$('.rename-form',el.closest('.account-row'));form.hidden=action==='cancel-rename';if(!form.hidden)$('input',form).focus();return;}
       if(busy){toast('Finish the current connection attempt first.');return;}
       if(action==='disconnect'&&!el.dataset.confirm){el.dataset.confirm='yes';el.textContent='Remove from Echo?';return;}
       busy=true;el.disabled=true;
@@ -151,6 +164,11 @@ document.addEventListener('click', async event=>{
   } catch(error){toast(error.message);} finally{el.disabled=false;}
 });
 document.addEventListener('submit', async event=>{
+  if(event.target.matches('.rename-form')) {
+    event.preventDefault();const form=event.target;const button=$('button[type="submit"]',form);const errorBox=$('.error',form);errorBox.hidden=true;button.disabled=true;
+    try{await api(`api/connections/${encodeURIComponent(form.dataset.account)}/rename`,{label:$('input',form).value});await refresh();toast('Account label saved. Echo will use it on its next task.');}
+    catch(error){errorBox.textContent=error.message;errorBox.hidden=false;}finally{button.disabled=false;}return;
+  }
   if(!['connect-form','google-form'].includes(event.target.id))return;
   event.preventDefault();const form=event.target;const button=$('button[type="submit"]',form);
   const errorBox=$(form.id==='google-form'?'#google-error':'#form-error');errorBox.hidden=true;

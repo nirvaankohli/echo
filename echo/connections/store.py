@@ -6,6 +6,7 @@ import time
 
 from echo.runtime.config import state_dir
 from echo.runtime.queue import Queue
+from echo.connections.catalog import BY_ID
 
 
 class Connections(Queue):
@@ -41,12 +42,38 @@ class Connections(Queue):
         with self.db() as db:
             return [dict(row) for row in db.execute('SELECT * FROM connections ORDER BY created')]
 
-    def add(self, provider, label, url, auth):
+    def _label(self, db, provider, label, *, exclude=None, automatic=False):
+        if not isinstance(label, str) or not 1 <= len(label.strip()) <= 80:
+            raise ValueError('Use an account label of 1–80 characters')
+        label = label.strip()
+        used = {r['label'].casefold() for r in db.execute(
+            'SELECT id,label FROM connections WHERE provider=?', (provider,)) if r['id'] != exclude}
+        candidate, number = label, 2
+        while candidate.casefold() in used:
+            if not automatic:
+                raise ValueError('That account label is already used for this service. Choose another, such as School or Home.')
+            suffix = f' {number}'
+            candidate = label[:80-len(suffix)] + suffix
+            number += 1
+        return candidate
+
+    def add(self, provider, label, url, auth, *, automatic_label=False):
         id = secrets.token_hex(12)
         with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            label = self._label(db, provider, label, automatic=automatic_label)
             db.execute('INSERT INTO connections(id,provider,label,url,auth,created) VALUES (?,?,?,?,?,?)',
                        (id, provider, label, url, auth, time.time()))
         return id
+
+    def rename(self, id, label):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT provider FROM connections WHERE id=?', (id,)).fetchone()
+            if not row:
+                raise ValueError('Connection not found')
+            label = self._label(db, row['provider'], label, exclude=id)
+            db.execute('UPDATE connections SET label=? WHERE id=?', (label, id))
 
     def update(self, id, **values):
         if not values or not set(values) <= {'enabled', 'status', 'tool_count', 'checked', 'error'}:
@@ -79,5 +106,6 @@ class Connections(Queue):
 
     def configs(self):
         return {'account_'+r['id']: {**({'native_google': r['id']} if r['auth']=='google' else
-                {'url': r['url'], 'auth_connection': r['id']}), 'display_name': r['label']}
+                {'url': r['url'], 'auth_connection': r['id']}),
+                'display_name': f'{BY_ID.get(r["provider"], {}).get("name", "Custom MCP")} / {r["label"]}'}
                 for r in self.all() if r['enabled'] and r['status']=='connected'}

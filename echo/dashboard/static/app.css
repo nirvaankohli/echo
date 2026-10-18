@@ -158,6 +158,13 @@
   .button-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
   .account-row { padding: 18px 0; border-top: 1px solid var(--line); }
   .account-name { font-size: 13px; font-weight: 600; margin-bottom: 7px; overflow-wrap: anywhere; }
+  .account-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .account-count { display: block; color: var(--accent); font-size: 11px; margin-top: 7px; overflow-wrap: anywhere; }
+  .selected-account { background: var(--accent-soft); border-radius: 8px; padding: 16px 10px; }
+  .rename-form { margin-top: 16px; }
+  .add-account { border-top: 1px solid var(--line); padding-top: 20px; }
+  .add-account summary { color: var(--accent); font-size: 13px; font-weight: 600; }
+  .account-help { margin-bottom: 18px; }
   .custom-row { margin-top: 24px; padding: 18px 4px; display: flex; align-items: center; gap: 14px; }
   .custom-row>span { color: var(--muted); }
   .custom-row p { font-size: 12px; color: var(--muted); margin-top: 3px; }

@@ -210,7 +210,7 @@ class RemoteMCPTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             config = Path(folder) / 'mcp.json'
             config.write_text(json.dumps({'servers': {'off': {'enabled': False}, 'on': {'command': 'example'}}}))
-            with patch.dict('os.environ', {'ECHO_MCP_CONFIG': str(config)}):
+            with patch.dict('os.environ', {'ECHO_MCP_CONFIG': str(config), 'ECHO_STATE_DIR': folder}):
                 self.assertEqual(list(configured_servers()), ['on'])
         async def check():
             async with AsyncExitStack() as stack:

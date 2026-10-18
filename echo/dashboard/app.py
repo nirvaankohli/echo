@@ -109,7 +109,10 @@ def register(app, config, coordinator):
         if not provider and data.get('provider')!='custom':
             raise ValueError('Unknown provider')
         provider = provider or dict(id='custom', name='Custom connection', auth='oauth', url='')
-        label = data.get('label') or provider['name']
+        supplied_label = data.get('label', '')
+        if not isinstance(supplied_label, str):
+            raise ValueError('Use an account label of 1–80 characters')
+        label = supplied_label.strip() or provider['name']
         if not isinstance(label, str) or not 1<=len(label.strip())<=80:
             raise ValueError('Use a connection name of 1–80 characters')
         auth = provider['auth'] if provider['id']!='custom' else data.get('auth', 'oauth')
@@ -126,7 +129,7 @@ def register(app, config, coordinator):
             raise ValueError('This provider requires your OAuth app client ID and secret.')
         if auth=='google' and not store.secret('google:client'):
             raise ValueError('Complete the Google app setup first')
-        id = store.add(provider['id'], label.strip(), url, auth)
+        id = store.add(provider['id'], label.strip(), url, auth, automatic_label=not supplied_label.strip())
         if auth=='token':
             store.secret(id+':bearer', {'token': bearer}, connection=id)
         if auth=='oauth':
@@ -142,6 +145,9 @@ def register(app, config, coordinator):
     @bp.post('/api/connections/<id>/<action>')
     def manage(id, action):
         store.get(id)
+        if action=='rename':
+            store.rename(id, request.get_json().get('label'))
+            return jsonify(ok=True)
         if action=='disconnect':
             manager.stop(id)
             store.remove(id)

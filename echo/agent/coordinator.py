@@ -16,11 +16,11 @@ from echo.agent.processor import INSTRUCTIONS
 from echo.agent.tasks import TERMINAL
 from echo.agent.decisions import proposal_tools, review
 from echo.agent.schedules import Schedules
-from echo.tools.client import configured_servers, connect
+from echo.tools.client import ACCOUNT_INSTRUCTIONS, configured_servers, connect
 
 log = logging.getLogger(__name__)
 ACKNOWLEDGEMENT = "I'll get started and send you the result. You can ask for status or say cancel."
-POLICY = (
+POLICY = ACCOUNT_INSTRUCTIONS + (
     ' You are completing a saved task. Only perform actions authorized by the user. '
     'This task is part of an ongoing conversation: use prior user and assistant messages to resolve references. '
     'Later user follow-ups revise the task; adapt any earlier plan. Do not redo completed actions. '
