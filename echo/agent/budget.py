@@ -38,7 +38,7 @@ class Budget:
         incoming = len(json.dumps(request, ensure_ascii=False,
                                   default=lambda item: item.model_dump(mode='json')).encode('utf-8')) + 1024
         task_limit = int(os.environ.get('ECHO_TASK_TOKEN_LIMIT', '256000'))
-        day_limit = int(os.environ.get('ECHO_DAILY_TOKEN_LIMIT', '250000'))
+        day_limit = int(os.environ.get('ECHO_DAILY_TOKEN_LIMIT', '500000'))
         cap = float(os.environ.get('ECHO_DAILY_USD_LIMIT', '0'))
         if task_limit <= 0 or day_limit <= 0 or not math.isfinite(cap) or cap < 0:
             raise BudgetExceeded('Invalid spending limits')
