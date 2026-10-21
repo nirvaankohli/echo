@@ -206,7 +206,7 @@ class RemoteMCPTests(unittest.TestCase):
             thread.join(5)
             listener.close()
 
-    def test_disabled_servers_and_insecure_remote_urls(self):
+    def test_disabled_servers_and_unsupported_remote_urls(self):
         with tempfile.TemporaryDirectory() as folder:
             config = Path(folder) / 'mcp.json'
             config.write_text(json.dumps({'servers': {'off': {'enabled': False}, 'on': {'command': 'example'}}}))
@@ -215,7 +215,7 @@ class RemoteMCPTests(unittest.TestCase):
         async def check():
             async with AsyncExitStack() as stack:
                 with self.assertRaises(ValueError):
-                    await connect(stack, {'url': 'http://external.example/mcp'})
+                    await connect(stack, {'url': 'ftp://external.example/mcp'})
         asyncio.run(check())
 
 
