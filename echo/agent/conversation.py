@@ -162,7 +162,7 @@ class Conversation:
             with OpenAI(timeout=30, max_retries=0) as client:
                 result = Budget(self.store, row['id']).create(
                     client, model=os.environ.get('OPENAI_CONVERSATION_MODEL',
-                                                 os.environ.get('OPENAI_WORKER_MODEL', 'gpt-4.1-mini')),
+                                                 os.environ.get('OPENAI_WORKER_MODEL', 'gpt-6-luna')),
                     instructions=INSTRUCTIONS + ROUTING + self.memory.rules_context(row['sender']),
                     input=[context(self.store, self.memory, row)] + history(self.store, row['sender'], row['id']),
                     text={'format': DECISION}, max_output_tokens=1800, store=False)

@@ -251,11 +251,11 @@ The defaults are configuration choices, not a quoted monthly price:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_PLANNER_MODEL` | `gpt-4.1` | Plan work requests. |
-| `OPENAI_WORKER_MODEL` | `gpt-4.1-mini` | Execute task steps and produce answers. |
+| `OPENAI_PLANNER_MODEL` | `gpt-6-luna` | Plan work requests. |
+| `OPENAI_WORKER_MODEL` | `gpt-6-luna` | Execute task steps and produce answers. |
 | `OPENAI_CONVERSATION_MODEL` | Worker model | Answer ordinary chat and route work/follow-ups in one call. |
 | `OPENAI_DECISION_MODEL` | `gpt-6-luna` | Review each new tool action through the Decisions API. |
-| `OPENAI_NOTIFICATION_MODEL` | `gpt-4.1-mini` | Judge supported non-routine events. |
+| `OPENAI_NOTIFICATION_MODEL` | `gpt-6-luna` | Judge supported non-routine events. |
 | `ECHO_MAX_ROUNDS` | `8` | Maximum worker response rounds per task. |
 | `ECHO_MAX_TOOL_CALLS` | `12` | Maximum tool actions per task. |
 | `ECHO_TASK_SECONDS` | `600` | Active execution segment time limit; not a wall-clock guarantee for an external job. |

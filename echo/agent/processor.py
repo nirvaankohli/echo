@@ -28,10 +28,10 @@ def process_message(message: str, sender: str, *, allow_tools: bool = False, bud
             from echo.tools.client import enabled_for, respond
             if enabled_for(sender):
                 return asyncio.run(respond(client, message, INSTRUCTIONS,
-                                           os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini'), budget=budget))
+                                           os.environ.get('OPENAI_MODEL', 'gpt-6-luna'), budget=budget))
         create = (lambda **kwargs: budget.create(client, **kwargs)) if budget else client.responses.create
         result = create(
-            model=os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini'),
+            model=os.environ.get('OPENAI_MODEL', 'gpt-6-luna'),
             instructions=INSTRUCTIONS + 'You have no tools, computer access, or scheduling capability.',
             input=message,
             max_output_tokens=600,
