@@ -4,6 +4,7 @@ import base64
 from contextlib import AsyncExitStack
 import hashlib
 import logging
+import re
 import secrets
 import threading
 import time
@@ -38,6 +39,20 @@ def https_url(value):
     return server_url(value, https_only=True)
 
 
+def custom_header(name, value):
+    if not isinstance(name, str) or not isinstance(value, str):
+        raise ValueError('Enter a header name and value')
+    if not name and not value:
+        return {}
+    if (not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}", name)
+            or not value or len(value) > 8000 or any(ord(c) < 32 or ord(c) > 126 for c in value)):
+        raise ValueError('Enter a valid header name and a single-line value')
+    if name.lower() in {'authorization', 'host', 'content-length', 'transfer-encoding', 'connection',
+                         'content-type', 'accept', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id'}:
+        raise ValueError('This header is managed by Echo; use the sign-in options for authorization')
+    return {name: value}
+
+
 class TokenStorage:
     def __init__(self, store, id):
         self.store, self.id = store, id
@@ -65,7 +80,7 @@ class TokenStorage:
 async def remote_client(stack, id, *, store=None, redirect=None, callback=None):
     store = store or Connections()
     row = store.get(id)
-    headers, auth = {}, None
+    headers, auth = dict(store.secret(id+':headers') or {}), None
     if row['auth'] == 'token':
         secret = store.secret(id+':bearer')
         if not secret:

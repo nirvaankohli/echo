@@ -133,6 +133,28 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.store.get(id)
         self.assertEqual((self.root/'mcp.json').read_text(), manual)
 
+    def test_custom_header_is_private_and_removed_on_disconnect(self):
+        self.login()
+        with patch.object(self.manager, 'begin', return_value='flow'):
+            result = self.post('/app/api/connections', {'provider': 'custom', 'auth': 'none',
+                'url': 'http://server.example/mcp', 'header_name': 'X-Canvas-Extractor', 'header_value': '1'})
+        self.assertEqual(result.status_code, 200)
+        id = result.json['id']
+        self.assertEqual(self.store.secret(id+':headers'), {'X-Canvas-Extractor': '1'})
+        self.assertNotIn('X-Canvas-Extractor', self.get().get_data(as_text=True))
+        self.post(f'/app/api/connections/{id}/disconnect', {})
+        self.assertIsNone(self.store.secret(id+':headers'))
+
+    def test_invalid_custom_headers_rejected_before_saving(self):
+        self.login()
+        for name, value in [('Bad Header', '1'), ('X-Test', '1\r\nInjected: yes'), ('', '1'),
+                            ('Authorization', 'secret'), ('Host', 'elsewhere'), ('X-Test', '')]:
+            with self.subTest(name=name):
+                result = self.post('/app/api/connections', {'provider': 'custom', 'auth': 'none',
+                    'url': 'http://server.example/mcp', 'header_name': name, 'header_value': value})
+                self.assertEqual(result.status_code, 400)
+        self.assertEqual(self.store.all(), [])
+
     def test_http_endpoint_preserves_query_parameters(self):
         self.login()
         url = 'http://server.example:8000/mcp?workspace=school&tag=a%2Fb&tag=two'

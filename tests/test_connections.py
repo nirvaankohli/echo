@@ -28,6 +28,25 @@ class ConnectionTests(unittest.TestCase):
         self.store = Connections()
         self.manager = ConnectionManager(self.store, 'http://127.0.0.1:8877')
 
+    def test_custom_header_sent_with_public_and_token_connections(self):
+        from contextlib import AsyncExitStack
+        async def check():
+            for auth in ('none', 'token'):
+                id = self.store.add('custom', 'Canvas ' + auth, 'http://server.example/mcp', auth)
+                self.store.secret(id+':headers', {'X-Canvas-Extractor': '1'}, connection=id)
+                if auth == 'token':
+                    self.store.secret(id+':bearer', {'token': 'test-token'}, connection=id)
+                with patch('echo.connections.oauth.httpx2.AsyncClient', return_value=AsyncMock()) as http, \
+                     patch('echo.connections.oauth.streamable_http_client'), \
+                     patch('echo.connections.oauth.Client', return_value=AsyncMock()):
+                    async with AsyncExitStack() as stack:
+                        await remote_client(stack, id, store=self.store)
+                    headers = http.call_args.kwargs['headers']
+                    self.assertEqual(headers['X-Canvas-Extractor'], '1')
+                    if auth == 'token':
+                        self.assertEqual(headers['Authorization'], 'Bearer test-token')
+        asyncio.run(check())
+
     def test_http_query_reaches_dashboard_and_manual_transports(self):
         from contextlib import AsyncExitStack
         from echo.tools.client import connect

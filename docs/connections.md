@@ -111,6 +111,10 @@ guide; a catalog entry does not guarantee every account can authenticate.
 
 **Custom connection** accepts HTTP or HTTPS Streamable HTTP MCP endpoints with
 OAuth, a bearer token, or no authentication. URL query parameters are preserved.
+Expand **Custom header (optional)** when connecting to supply a provider-required
+header. For Canvas Extractor, enter `X-Canvas-Extractor` as the name and `1` as
+the value. Headers are stored privately per account and sent during connection
+verification and subsequent MCP requests. Use the sign-in method for Authorization.
 Browser OAuth authorization redirects still require HTTPS. This is not a generic website URL
 and does not support legacy SSE-only servers. Local stdio servers and the Echo
 Codex worker remain configured through `mcp.json` using setup option 6.

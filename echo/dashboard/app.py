@@ -7,7 +7,7 @@ import time
 from flask import Blueprint, jsonify, request, make_response, send_from_directory
 
 from echo.connections.catalog import CATALOG, BY_ID
-from echo.connections.oauth import ConnectionManager, server_url
+from echo.connections.oauth import ConnectionManager, server_url, custom_header
 from echo.connections.store import Connections
 
 STATIC = Path(__file__).parent / 'static'
@@ -119,6 +119,9 @@ def register(app, config, coordinator):
         if auth not in ('google', 'oauth', 'token', 'none'):
             raise ValueError('Unknown sign-in method')
         url = '' if auth=='google' else server_url(provider['url'] or data.get('url', ''))
+        headers = custom_header(data.get('header_name', ''), data.get('header_value', ''))
+        if headers and auth == 'google':
+            raise ValueError('Custom headers are supported for MCP connections only')
         bearer = data.get('token', '')
         if auth=='token' and (not isinstance(bearer, str) or not 1<=len(bearer)<=8000 or '\n' in bearer or '\r' in bearer):
             raise ValueError('Enter a valid access token')
@@ -130,6 +133,8 @@ def register(app, config, coordinator):
         if auth=='google' and not store.secret('google:client'):
             raise ValueError('Complete the Google app setup first')
         id = store.add(provider['id'], label.strip(), url, auth, automatic_label=not supplied_label.strip())
+        if headers:
+            store.secret(id+':headers', headers, connection=id)
         if auth=='token':
             store.secret(id+':bearer', {'token': bearer}, connection=id)
         if auth=='oauth':
