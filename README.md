@@ -175,8 +175,12 @@ and Echo bridge to be running; queued notifications wait while the bridge is off
   have separate settings. Code handles queueing, status, and ordinary completion
   delivery. There are **no idle OpenAI calls**.
 - Before a proposed tool action runs, OpenAI's Decisions API checks your request,
-  follow-ups, the main model's plan/rationale, and exact arguments. Safe, authorized
-  actions run automatically; flagged or inconclusive checks ask for confirmation.
+  follow-ups, the main model's plan/rationale, and exact arguments. It defaults to
+  allowing routine work and reasonable implementation choices without repeated
+  confirmation. Money movement, purchases, banking changes, sensitive disclosure,
+  security changes, and irreversible loss of important data need clear authorization
+  covering those consequences. Material scope or target ambiguity and unavailable
+  or malformed decision responses still ask for confirmation.
 - Codex completion is tracked automatically. Generic MCP servers do not all emit
   completion events; this does not install arbitrary webhooks, schedules, Canvas,
   Gmail, or browser automation for you.
