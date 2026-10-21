@@ -37,6 +37,22 @@ class BudgetEventTests(unittest.TestCase):
                 budget.create(client, model='test', input='hello', max_output_tokens=100)
         self.assertEqual(client.responses.create.call_count, 1)
 
+    def test_default_allows_large_tool_context_but_preserves_daily_cap(self):
+        # Tool schemas are conservatively reserved as bytes, not actual billed tokens.
+        os.environ.pop('ECHO_TASK_TOKEN_LIMIT', None)
+        budget = Budget(self.store, 'reminder')
+        previous = budget.reserve('test', {}, 100)
+        budget.record(previous, SimpleNamespace(usage=SimpleNamespace(input_tokens=10000, output_tokens=100)))
+        budget.reserve('test', {'tools': 'x' * 80000}, 1200)
+        with patch.dict(os.environ, {'ECHO_DAILY_TOKEN_LIMIT': '92000'}):
+            with self.assertRaisesRegex(BudgetExceeded, 'Daily token budget'):
+                Budget(self.store, 'another').reserve('test', {}, 1200)
+
+    def test_task_limit_message_identifies_the_limit(self):
+        with patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '1000'}):
+            with self.assertRaisesRegex(BudgetExceeded, 'Task token budget'):
+                Budget(self.store, 'one').reserve('test', {}, 100)
+
     def test_prices_are_required_and_invalid_rates_are_rejected(self):
         budget = Budget(self.store, 'one')
         with patch.dict(os.environ, {'ECHO_DAILY_USD_LIMIT': '1'}):

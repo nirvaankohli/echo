@@ -37,7 +37,7 @@ class Budget:
         # UTF-8 bytes conservatively bound text tokens; deliberately over-reserves.
         incoming = len(json.dumps(request, ensure_ascii=False,
                                   default=lambda item: item.model_dump(mode='json')).encode('utf-8')) + 1024
-        task_limit = int(os.environ.get('ECHO_TASK_TOKEN_LIMIT', '64000'))
+        task_limit = int(os.environ.get('ECHO_TASK_TOKEN_LIMIT', '256000'))
         day_limit = int(os.environ.get('ECHO_DAILY_TOKEN_LIMIT', '250000'))
         cap = float(os.environ.get('ECHO_DAILY_USD_LIMIT', '0'))
         if task_limit <= 0 or day_limit <= 0 or not math.isfinite(cap) or cap < 0:
@@ -58,8 +58,10 @@ class Budget:
                               (self.task_id,)).fetchone()[0]
             daily = db.execute('SELECT COALESCE(SUM(input_tokens+output_tokens),0),COALESCE(SUM(dollars),0) '
                                'FROM usage WHERE created>=?', (day,)).fetchone()
-            if task + incoming + output_limit > task_limit or daily[0] + incoming + output_limit > day_limit:
-                raise BudgetExceeded('Token budget reached')
+            if task + incoming + output_limit > task_limit:
+                raise BudgetExceeded('Task token budget reached; the next call exceeds the per-task allowance')
+            if daily[0] + incoming + output_limit > day_limit:
+                raise BudgetExceeded('Daily token budget reached; the next call exceeds the daily allowance')
             if cap > 0 and db.execute('SELECT 1 FROM usage WHERE created>=? AND input_price IS NULL LIMIT 1', (day,)).fetchone():
                 raise BudgetExceeded('Earlier usage today has no configured price; dollar budget cannot be verified')
             if cap > 0 and daily[1] + dollars > cap:

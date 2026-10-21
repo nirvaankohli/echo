@@ -260,7 +260,7 @@ The defaults are configuration choices, not a quoted monthly price:
 | `ECHO_MAX_TOOL_CALLS` | `12` | Maximum tool actions per task. |
 | `ECHO_TASK_SECONDS` | `600` | Active execution segment time limit; not a wall-clock guarantee for an external job. |
 | `ECHO_JOB_WATCH_SECONDS` | `7200` | Maximum tracking window for an external job. |
-| `ECHO_TASK_TOKEN_LIMIT` | `64000` | Input plus output allowance per chat turn; new tool work shares its originating turn's allowance. |
+| `ECHO_TASK_TOKEN_LIMIT` | `256000` | Input plus output allowance per chat turn; new tool work shares its originating turn's allowance. |
 | `ECHO_DAILY_TOKEN_LIMIT` | `250000` | Shared daily token allowance. |
 | `ECHO_DAILY_USD_LIMIT` | `0` | Optional dollar cap; zero disables the dollar cap. |
 | `ECHO_MODEL_PRICES` | `{}` | Verified input/output rates in USD per million tokens, keyed by model. |
