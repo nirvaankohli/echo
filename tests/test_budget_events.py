@@ -38,15 +38,23 @@ class BudgetEventTests(unittest.TestCase):
         self.assertEqual(client.responses.create.call_count, 1)
 
     def test_default_allows_large_tool_context_but_preserves_daily_cap(self):
-        # Tool schemas are conservatively reserved as bytes, not actual billed tokens.
+        # Tool schemas are estimated from their encoded size, not actual billed tokens.
         os.environ.pop('ECHO_TASK_TOKEN_LIMIT', None)
         budget = Budget(self.store, 'reminder')
         previous = budget.reserve('test', {}, 100)
         budget.record(previous, SimpleNamespace(usage=SimpleNamespace(input_tokens=10000, output_tokens=100)))
         budget.reserve('test', {'tools': 'x' * 80000}, 1200)
-        with patch.dict(os.environ, {'ECHO_DAILY_TOKEN_LIMIT': '92000'}):
+        with patch.dict(os.environ, {'ECHO_DAILY_TOKEN_LIMIT': '33000'}):
             with self.assertRaisesRegex(BudgetExceeded, 'Daily token budget'):
                 Budget(self.store, 'another').reserve('test', {}, 1200)
+
+    def test_large_tool_schema_does_not_count_one_byte_as_one_token(self):
+        previous = Budget(self.store, 'prior-work').reserve('test', {}, 100)
+        Budget(self.store, 'prior-work').record(
+            previous, SimpleNamespace(usage=SimpleNamespace(input_tokens=202000, output_tokens=0)))
+        # A large JSON tool schema is roughly four bytes per token, not one token per byte.
+        with patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '100000', 'ECHO_DAILY_TOKEN_LIMIT': '500000'}):
+            Budget(self.store, 'assignment-task').reserve('test', {'tools': 'x' * 300000}, 1200)
 
     def test_task_limit_message_identifies_the_limit(self):
         with patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '1000'}):

@@ -34,9 +34,11 @@ class Budget:
             raise BudgetExceeded('Invalid model prices; use nonnegative finite USD rates per million tokens') from None
 
     def reserve(self, model, request, output_limit):
-        # UTF-8 bytes conservatively bound text tokens; deliberately over-reserves.
-        incoming = len(json.dumps(request, ensure_ascii=False,
-                                  default=lambda item: item.model_dump(mode='json')).encode('utf-8')) + 1024
+        # JSON bytes are a rough proxy for text tokens; one token is typically about
+        # four UTF-8 bytes. Keep a small fixed cushion for tokenization overhead.
+        encoded_request = json.dumps(request, ensure_ascii=False,
+                                     default=lambda item: item.model_dump(mode='json')).encode('utf-8')
+        incoming = (len(encoded_request) + 3) // 4 + 1024
         task_limit = int(os.environ.get('ECHO_TASK_TOKEN_LIMIT', '256000'))
         day_limit = int(os.environ.get('ECHO_DAILY_TOKEN_LIMIT', '500000'))
         cap = float(os.environ.get('ECHO_DAILY_USD_LIMIT', '0'))
