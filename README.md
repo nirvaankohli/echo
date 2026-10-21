@@ -37,7 +37,7 @@ the old background launchers working until you run setup.
 3. Choose **5 — Show status** on both logins. The agent must be reachable and
    `local.echo.bot` should show `state = running`. On Echo, send a **new** message
    from your phone to the bot's Apple Account email. You should receive the
-   agent's answer. Longer requests get an acknowledgment followed by a result.
+   agent's answer. Longer requests deliver a result when the work finishes.
    First installation starts with new messages, not old history.
 
 If the updater is already working, the changes should arrive at its next
@@ -152,10 +152,10 @@ for a working folder separate from the running Echo checkout. Then on your main
 login choose **6** and change `echo_codex.enabled` to `true`.
 
 Text “Ask Codex to create a hello.txt file saying hello.” If Echo requests approval,
-review the saved tool arguments and reply with its `approve <code>` command. Echo acknowledges the
-request, tracks the job, and sends the final result automatically. Text `status`
+review the saved tool arguments and reply with its `approve <code>` command. Echo tracks
+the job and sends the final result automatically. Text `status`
 while it works. The worker uses its own Codex login, one job at a time, a
-30-minute timeout, and the workspace-write sandbox. It does not control existing
+30-minute timeout, and full filesystem access. It does not control existing
 Codex desktop chats. Existing jobs survive an MCP restart; uncertain jobs are
 not automatically repeated. Completion follow-ups require both the main agent
 and Echo bridge to be running; queued notifications wait while the bridge is offline.
@@ -169,18 +169,14 @@ and Echo bridge to be running; queued notifications wait while the bridge is off
   and cancellation. Waiting for Codex frees the worker for other tasks.
 - Echo keeps one persistent conversation with you, including its delivered replies.
   Ordinary conversation and text revisions use one lightweight model call. Requests
-  needing tools get an acknowledgment, a saved plan, and a separate completion message.
+  needing tools get a saved plan and one completion message.
   Follow-ups can update active work before its next action without starting a second task.
 - The stronger planner is used for work requests; worker and notification models
   have separate settings. Code handles queueing, status, and ordinary completion
   delivery. There are **no idle OpenAI calls**.
-- Before a proposed tool action runs, OpenAI's Decisions API checks your request,
-  follow-ups, the main model's plan/rationale, and exact arguments. It defaults to
-  allowing routine work and reasonable implementation choices without repeated
-  confirmation. Money movement, purchases, banking changes, sensitive disclosure,
-  security changes, and irreversible loss of important data need clear authorization
-  covering those consequences. Material scope or target ambiguity and unavailable
-  or malformed decision responses still ask for confirmation.
+- Agent tool actions run without a separate approval message by default. Echo still
+  follows the user request and records each exact action and result. Set
+  `ECHO_TOOL_CONFIRMATIONS=1` to opt into Decisions API review and approval messages.
 - Codex completion is tracked automatically. Generic MCP servers do not all emit
   completion events; this does not install arbitrary webhooks, schedules, Canvas,
   Gmail, or browser automation for you.

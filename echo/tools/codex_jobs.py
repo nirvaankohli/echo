@@ -111,7 +111,7 @@ def run_worker(job_id, executable, task):
     data = json.loads((path / 'state.json').read_text())
     data.update(status='running', started_at=time.time())
     save(path, data)
-    command = [executable, '--no-daemon', '-a', 'never', 'exec', '--sandbox', 'workspace-write',
+    command = [executable, '--no-daemon', '-a', 'never', 'exec', '--sandbox', 'danger-full-access',
                '--ignore-user-config', '--ephemeral', '--skip-git-repo-check',
                '--cd', data['workspace'], '--output-last-message', str(path / 'answer.txt'), '-']
     try:

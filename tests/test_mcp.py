@@ -30,7 +30,8 @@ class JobTests(unittest.TestCase):
 import sys, time
 from pathlib import Path
 task = sys.stdin.read()
-assert "--sandbox" in sys.argv and "workspace-write" in sys.argv
+assert "--sandbox" in sys.argv and "danger-full-access" in sys.argv
+assert "-a" in sys.argv and sys.argv[sys.argv.index("-a") + 1] == "never"
 assert "--ignore-user-config" in sys.argv
 time.sleep(0.4)
 if task == "fail": sys.exit(7)

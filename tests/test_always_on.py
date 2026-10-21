@@ -51,7 +51,8 @@ class AlwaysOnTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name)
         self.env = patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '200000', 'ECHO_DAILY_TOKEN_LIMIT': '500000',
-                                           'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}'}, clear=False)
+                                           'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}',
+                                           'ECHO_TOOL_CONFIRMATIONS': '1'}, clear=False)
         self.env.start()
         self.addCleanup(self.env.stop)
         gate = patch('echo.agent.coordinator.review', side_effect=lambda store, task, route, *args:
@@ -70,12 +71,12 @@ class AlwaysOnTests(unittest.TestCase):
         message = {**MESSAGE, **kwargs}
         return self.client.post('/v2/messages', json=message, headers=self.headers)
 
-    def test_task_ack_replay_owner_auth_and_restart(self):
+    def test_task_replay_owner_auth_and_restart(self):
         self.assertEqual(self.client.post('/v2/messages', json=MESSAGE).status_code, 401)
         self.assertEqual(self.submit(sender='other').status_code, 403)
         for _ in range(3):
             self.assertEqual(self.submit().status_code, 200)
-        self.assertEqual(len(self.tasks.outbox()), 1)
+        self.assertEqual(len(self.tasks.outbox()), 0)
         self.assertEqual(self.submit(text='changed').status_code, 409)
         self.assertEqual(self.tasks.summary()['tasks'], {'queued': 1})
         task = self.tasks.claim()
@@ -85,7 +86,7 @@ class AlwaysOnTests(unittest.TestCase):
         self.assertEqual(reopened.task('task1')['status'], 'uncertain')
         self.assertIsNone(reopened.claim())
         self.coordinator.events_once()
-        self.assertEqual(len(reopened.outbox()), 2)
+        self.assertEqual(len(reopened.outbox()), 1)
 
     def test_control_does_not_hide_task_and_never_enters_work_queue(self):
         self.submit()
@@ -222,6 +223,46 @@ class AlwaysOnTests(unittest.TestCase):
             with self.assertRaises(ExceptionGroup):
                 asyncio.run(run(signal, cleanup))
 
+    def test_grouped_worker_failure_reports_underlying_cause(self):
+        self.submit()
+        async def broken_workflow(*args):
+            raise ExceptionGroup('connection cleanup', [ValueError('Invalid schedule arguments')])
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch.object(self.coordinator, 'workflow', side_effect=broken_workflow):
+            factory.return_value.__enter__.return_value = Mock()
+            self.coordinator.execute(self.tasks.claim())
+        result = self.tasks.task('task1')['result']
+        self.assertIn('Invalid schedule arguments', result)
+        self.assertNotIn('ExceptionGroup', result)
+
+    def test_incomplete_optional_plan_continues_to_complete_task(self):
+        self.submit()
+        client = Mock()
+        incomplete = response('')
+        incomplete.status = 'incomplete'
+        client.responses.create.side_effect = [incomplete, response('The requested task is complete.')]
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', new=AsyncMock(return_value=([], {}))):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.tasks.claim())
+        self.assertEqual(self.tasks.task('task1')['status'], 'completed')
+        self.coordinator.events_once()
+        self.assertEqual([item['text'] for item in self.tasks.outbox()], ['The requested task is complete.'])
+
+    def test_incomplete_worker_turn_retries_with_more_output_space(self):
+        self.submit()
+        client = Mock()
+        incomplete = response('')
+        incomplete.status = 'incomplete'
+        client.responses.create.side_effect = [response('Plan briefly.'), incomplete,
+                                               response('The requested task is complete.')]
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', new=AsyncMock(return_value=([], {}))):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.tasks.claim())
+        self.assertEqual(self.tasks.task('task1')['status'], 'completed')
+        self.assertEqual(client.responses.create.call_args.kwargs['max_output_tokens'], 2400)
+
     def test_repaired_approval_task_can_deliver_completion_after_old_failure(self):
         self.submit()
         self.tasks.change('task1', status='failed')
@@ -271,7 +312,7 @@ class AlwaysOnTests(unittest.TestCase):
         self.coordinator.events_once()
         self.coordinator.events_once()
         self.assertEqual(self.tasks.task('task1')['status'], 'completed')
-        self.assertEqual(len(self.tasks.outbox()), 2)
+        self.assertEqual(len(self.tasks.outbox()), 1)
         self.assertEqual(remote.call_tool.call_count, 2) # start and one authoritative status
 
     def test_cancel_waiting_job_does_not_resume_success(self):

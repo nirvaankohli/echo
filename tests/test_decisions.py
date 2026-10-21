@@ -32,7 +32,8 @@ class DecisionTests(unittest.TestCase):
         self.requests = []
         self.answer = dict(name='action_gate', type='choice', choice='allow', confidence=0.99)
         env = patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '200000', 'ECHO_DAILY_TOKEN_LIMIT': '500000',
-                                      'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}', 'OPENAI_DECISION_MODEL': 'gpt-6-luna'})
+                                      'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}',
+                                      'OPENAI_DECISION_MODEL': 'gpt-6-luna', 'ECHO_TOOL_CONFIRMATIONS': '1'})
         env.start()
         self.addCleanup(env.stop)
         def factory(**kwargs):
@@ -77,6 +78,17 @@ class DecisionTests(unittest.TestCase):
         self.assertIn('requested essay', audit['rationale'])
         with self.assertRaises(ValueError):
             self.act(args={'path': 'other.txt'})
+
+    def test_full_access_executes_tool_without_decision_or_approval(self):
+        with patch.dict(os.environ, {'ECHO_TOOL_CONFIRMATIONS': '0'}), \
+             patch('echo.agent.coordinator.review', side_effect=AssertionError('review must not run')):
+            self.act(route=(*self.route[:3], 'approval'))
+        self.remote.call_tool.assert_called_once_with('write_file', {'path': 'essay.txt'})
+        self.assertEqual(self.store.events(), [])
+        with self.store.db() as db:
+            self.assertEqual(db.execute('SELECT status FROM actions').fetchone()[0], 'completed')
+            self.assertEqual(json.loads(db.execute('SELECT decision FROM action_decisions').fetchone()[0])['choice'],
+                             'full_access')
 
     def test_negative_decision_overrides_old_private_write_policy_and_asks(self):
         self.answer['choice'] = 'ask_risk'

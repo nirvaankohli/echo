@@ -10,6 +10,10 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+class ModelIncomplete(RuntimeError):
+    pass
+
+
 class Budget:
     def __init__(self, store, task_id):
         self.store, self.task_id = store, task_id
@@ -90,5 +94,5 @@ class Budget:
         result = client.responses.create(**kwargs)
         self.record(reservation, result)
         if result.status != 'completed':
-            raise RuntimeError('Model response incomplete')
+            raise ModelIncomplete('Model response incomplete')
         return result

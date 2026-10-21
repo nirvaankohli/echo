@@ -34,7 +34,8 @@ class ScheduleTests(unittest.TestCase):
         self.args = dict(title='Chemistry', timezone='America/New_York', at='2026-10-18T19:00:00-04:00',
                          cron=None, reminder='Time to study AP Chemistry.', prompt='Create an AP Chemistry study guide using Codex.')
         env = patch.dict(os.environ, {'ECHO_TASK_TOKEN_LIMIT': '200000', 'ECHO_DAILY_TOKEN_LIMIT': '500000',
-                                      'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}'})
+                                      'ECHO_DAILY_USD_LIMIT': '0', 'ECHO_MODEL_PRICES': '{}',
+                                      'ECHO_TOOL_CONFIRMATIONS': '1'})
         env.start(); self.addCleanup(env.stop)
 
     def create(self, **changes):
@@ -224,6 +225,30 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(len(self.schedules.listing('owner')), 1)
         tools = client.responses.create.call_args.kwargs['tools']
         self.assertIn('schedule_create', [tool['name'] for tool in tools])
+
+    def test_two_daily_assignment_schedules_complete_in_one_reply(self):
+        self.store.submit('daily', 'owner',
+            'Every day at 7 AM list today assignments and tests, and at 2:30 PM list tomorrow assignments and tests.', None)
+        morning = {**self.args, 'title': 'Today assignments and tests', 'at': None,
+                   'cron': '0 7 * * *', 'reminder': '',
+                   'prompt': 'List my Canvas assignments and tests due today.'}
+        afternoon = {**morning, 'title': 'Tomorrow assignments and tests', 'cron': '30 14 * * *',
+                     'prompt': 'List my Canvas assignments and tests due tomorrow.'}
+        client = Mock()
+        client.responses.create.side_effect = [response('Save both daily schedules.'),
+            response(calls=[Call('schedule_create', 'morning', morning)]),
+            response(calls=[Call('schedule_create', 'afternoon', afternoon)]),
+            response('Saved both daily assignment and test schedules.')]
+        with patch('echo.agent.coordinator.OpenAI') as factory, \
+             patch('echo.tools.client.discover', new=AsyncMock(return_value=([], {}))), \
+             patch('echo.agent.coordinator.review', return_value={'allow': True}):
+            factory.return_value.__enter__.return_value = client
+            self.coordinator.execute(self.store.claim())
+        self.coordinator.events_once()
+        self.assertEqual({row['cron'] for row in self.schedules.listing('owner')},
+                         {'0 7 * * *', '30 14 * * *'})
+        self.assertEqual([row['text'] for row in self.store.outbox()],
+                         ['Saved both daily assignment and test schedules.'])
 
 
 if __name__ == '__main__':
