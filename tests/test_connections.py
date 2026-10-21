@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from mcp.shared.auth import OAuthToken
 from echo.connections.google import GoogleClient, token
-from echo.connections.oauth import ConnectionManager, TokenStorage
+from echo.connections.oauth import ConnectionManager, TokenStorage, server_url, https_url, remote_client
 from echo.connections.store import Connections
 from echo.tools.client import configured_servers, discover
 
@@ -27,6 +27,32 @@ class ConnectionTests(unittest.TestCase):
         env.start(); self.addCleanup(env.stop)
         self.store = Connections()
         self.manager = ConnectionManager(self.store, 'http://127.0.0.1:8877')
+
+    def test_http_query_reaches_dashboard_and_manual_transports(self):
+        from contextlib import AsyncExitStack
+        from echo.tools.client import connect
+        url = 'http://server.example:8000/mcp?workspace=school&tag=a%2Fb&tag=two'
+        self.assertEqual(server_url(url), url)
+        connection = self.store.add('custom', 'School', url, 'none')
+        async def check():
+            for module, call in (
+                ('echo.connections.oauth', lambda stack: remote_client(stack, connection, store=self.store)),
+                ('echo.tools.client', lambda stack: connect(stack, {'url': url})),
+            ):
+                with patch(module + '.streamable_http_client') as transport, \
+                     patch(module + '.Client', return_value=AsyncMock()):
+                    async with AsyncExitStack() as stack:
+                        await call(stack)
+                    self.assertEqual(transport.call_args.args[0], url)
+        asyncio.run(check())
+
+    def test_endpoint_validation_and_oauth_redirect_policy(self):
+        for url in ('file:///tmp/mcp', 'http://user:pass@host/mcp', 'http://host/mcp#fragment',
+                    'http://host:invalid/mcp', 'http://host/mcp?x=bad value'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                server_url(url)
+        with self.assertRaises(ValueError):
+            https_url('http://provider.example/authorize?state=test')
 
     def google(self):
         self.store.secret('google:client', {'client_id':'client.apps.googleusercontent.com','client_secret':'private'})

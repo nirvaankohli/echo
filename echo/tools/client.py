@@ -8,7 +8,6 @@ import os
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx2
 from mcp import Client, StdioServerParameters
@@ -61,9 +60,8 @@ async def connect(stack, config):
         from echo.connections.oauth import remote_client
         return await remote_client(stack, config['auth_connection'])
     if 'url' in config:
-        url = urlsplit(config['url'])
-        if url.scheme != 'https' and not (url.scheme == 'http' and url.hostname in ('127.0.0.1', 'localhost', '::1')):
-            raise ValueError('MCP HTTP requires HTTPS except on loopback')
+        from echo.connections.oauth import server_url
+        server_url(config['url'])
         headers = {name: os.environ[variable] for name, variable in config.get('header_env', {}).items()}
         http = await stack.enter_async_context(httpx2.AsyncClient(headers=headers, timeout=30, trust_env=False))
         transport = streamable_http_client(config['url'], http_client=http)

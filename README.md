@@ -131,8 +131,7 @@ inside ChatGPT or the Codex app are not automatically imported.
 
 Store header values (including `Bearer ` when required) in the private file
 `~/Library/Application Support/Echo/.env`, not in Git. Trusted local MCP commands
-run with your main user's permissions. Remote HTTP requires HTTPS except for
-loopback addresses. Only the configured phone sender can trigger tools; email,
+run with your main user's permissions. Remote MCP connections accept HTTP and HTTPS URLs, including query parameters. Only the configured phone sender can trigger tools; email,
 project files and tool results are treated as data, not user authorization.
 
 MCP configuration is read for each task execution. Unavailable servers are logged and

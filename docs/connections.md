@@ -109,8 +109,9 @@ own OAuth app** when the provider does not allow dynamic client registration.
 If its OAuth policy does not support this client, follow that provider's setup
 guide; a catalog entry does not guarantee every account can authenticate.
 
-**Custom connection** accepts other HTTPS Streamable HTTP MCP endpoints with
-OAuth, a bearer token, or no authentication. This is not a generic website URL
+**Custom connection** accepts HTTP or HTTPS Streamable HTTP MCP endpoints with
+OAuth, a bearer token, or no authentication. URL query parameters are preserved.
+Browser OAuth authorization redirects still require HTTPS. This is not a generic website URL
 and does not support legacy SSE-only servers. Local stdio servers and the Echo
 Codex worker remain configured through `mcp.json` using setup option 6.
 

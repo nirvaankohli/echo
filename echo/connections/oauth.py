@@ -22,13 +22,20 @@ from echo.connections.store import Connections
 log = logging.getLogger(__name__)
 
 
-def https_url(value):
-    if not isinstance(value, str) or not 1<=len(value)<=12000:
-        raise ValueError('Enter a valid HTTPS URL')
+def server_url(value, *, https_only=False):
+    schemes = ('https',) if https_only else ('http', 'https')
+    label = 'HTTPS' if https_only else 'HTTP or HTTPS'
+    if not isinstance(value, str) or not 1 <= len(value) <= 12000 or any(c.isspace() for c in value):
+        raise ValueError(f'Enter a valid {label} URL')
     parsed = urlsplit(value)
-    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
-        raise ValueError('Use an HTTPS server URL without credentials or a fragment')
+    if parsed.scheme not in schemes or not parsed.hostname or parsed.username is not None or parsed.password is not None or parsed.fragment:
+        raise ValueError(f'Use an {label} server URL without credentials or a fragment')
+    parsed.port  # Validate a supplied port without rewriting path or query parameters.
     return value
+
+
+def https_url(value):
+    return server_url(value, https_only=True)
 
 
 class TokenStorage:

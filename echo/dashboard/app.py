@@ -7,7 +7,7 @@ import time
 from flask import Blueprint, jsonify, request, make_response, send_from_directory
 
 from echo.connections.catalog import CATALOG, BY_ID
-from echo.connections.oauth import ConnectionManager, https_url
+from echo.connections.oauth import ConnectionManager, server_url
 from echo.connections.store import Connections
 
 STATIC = Path(__file__).parent / 'static'
@@ -118,7 +118,7 @@ def register(app, config, coordinator):
         auth = provider['auth'] if provider['id']!='custom' else data.get('auth', 'oauth')
         if auth not in ('google', 'oauth', 'token', 'none'):
             raise ValueError('Unknown sign-in method')
-        url = '' if auth=='google' else https_url(provider['url'] or data.get('url', ''))
+        url = '' if auth=='google' else server_url(provider['url'] or data.get('url', ''))
         bearer = data.get('token', '')
         if auth=='token' and (not isinstance(bearer, str) or not 1<=len(bearer)<=8000 or '\n' in bearer or '\r' in bearer):
             raise ValueError('Enter a valid access token')

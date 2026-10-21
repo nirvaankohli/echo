@@ -133,9 +133,17 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.store.get(id)
         self.assertEqual((self.root/'mcp.json').read_text(), manual)
 
+    def test_http_endpoint_preserves_query_parameters(self):
+        self.login()
+        url = 'http://server.example:8000/mcp?workspace=school&tag=a%2Fb&tag=two'
+        with patch.object(self.manager, 'begin', return_value='flow'):
+            result = self.post('/app/api/connections', {'provider': 'custom', 'auth': 'none', 'url': url})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(self.store.get(result.json['id'])['url'], url)
+
     def test_invalid_endpoints_and_oauth_app_requirements(self):
         self.login()
-        for url in ('http://example.com/mcp','https://user:pass@example.com/mcp','file:///tmp/private',None):
+        for url in ('https://example.com/mcp#fragment','https://user:pass@example.com/mcp','file:///tmp/private',None):
             self.assertEqual(self.post('/app/api/connections', {'provider':'custom','url':url}).status_code, 400)
         self.assertEqual(self.post('/app/api/connections', {'provider':'asana'}).status_code, 400)
         self.assertEqual(self.post('/app/api/connections', {'provider':'github','token':'a\nb'}).status_code, 400)
