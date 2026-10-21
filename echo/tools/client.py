@@ -72,6 +72,27 @@ async def connect(stack, config):
     return await stack.enter_async_context(Client(transport, read_timeout_seconds=30))
 
 
+def usage_guidance(server_name, config):
+    """Describe intent without relying on opaque generated tool names."""
+    from echo.connections.catalog import BY_ID
+    provider = BY_ID.get(config.get('provider', server_name), {})
+    identity = ' '.join(str(config.get(key, '')) for key in
+                        ('provider', 'display_name', 'url')) + ' ' + server_name
+    purpose = config.get('use_when') or provider.get('description') or config.get('description')
+    if not purpose and re.search(r'\bcanvas\b', identity, re.IGNORECASE):
+        purpose = ('School, courses, homework, assignments, due dates, grades and submissions. '
+                   'For "my assignments" or "what is due", use Canvas without requiring the user to name it.')
+    if not purpose and server_name == 'echo':
+        purpose = 'Delegate coding and workspace tasks to Codex; inspect existing jobs and their results.'
+    return purpose or ('Use this connection when the request matches the action described below; '
+                       'infer the service from its name and action, without requiring the user to name an MCP.')
+
+
+def connection_context():
+    return [{'connection': config.get('display_name', name), 'use_when': usage_guidance(name, config)}
+            for name, config in configured_servers().items()]
+
+
 async def discover(stack, *, stable=False):
     tools, routes = [], {}
     for index, (server_name, config) in enumerate(configured_servers().items()):
@@ -91,7 +112,7 @@ async def discover(stack, *, stable=False):
             if name in routes:
                 raise ValueError('Duplicate tool name')
             tools.append(dict(type='function', name=name,
-                              description=f'{config.get("display_name", server_name)}: {tool.name}. {tool.description or ""}',
+                              description=f'{config.get("display_name", server_name)}: Use this MCP for: {usage_guidance(server_name, config)} Action: {tool.name}. {tool.description or ""}',
                               parameters=tool.input_schema, strict=False))
             routes[name] = (client, tool.name)
             if stable:

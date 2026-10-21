@@ -107,5 +107,6 @@ class Connections(Queue):
     def configs(self):
         return {'account_'+r['id']: {**({'native_google': r['id']} if r['auth']=='google' else
                 {'url': r['url'], 'auth_connection': r['id']}),
+                'provider': r['provider'],
                 'display_name': f'{BY_ID.get(r["provider"], {}).get("name", "Custom MCP")} / {r["label"]}'}
                 for r in self.all() if r['enabled'] and r['status']=='connected'}

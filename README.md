@@ -285,3 +285,21 @@ To test just a conversational response (uses the API, never sends an iMessage):
 ```
 
 See [legacy installations](docs/legacy.md) for the former single-login mode.
+
+### Tool selection and persistent preferences
+
+Connected tool descriptions include why to use the service and the action's own
+purpose. Canvas is associated with school, homework, assignments, grades, and
+due dates, so requests such as “show my assignments” do not need an MCP name.
+Custom `mcp.json` server entries can set `use_when` to explain their purpose;
+provider presets supply guidance automatically. Account labels still distinguish
+school and personal connections.
+
+Echo has `rules_list`, `rules_save`, and `rules_delete` tools. Ask it to remember a
+preference, change a rule, list your rules, or delete a rule by key. Saving with an
+existing key replaces that rule. Rules are private to the sender, persist across
+restarts, and are loaded on every conversation and worker model call, including
+resumed work. They are separate from searchable task memories and never grant
+authorization for external actions. Up to 50 rules of 2,000 characters each can
+be saved. Tool requests deliver their result without a separate “I'll check”
+acknowledgment; status and cancellation remain available while work is running.

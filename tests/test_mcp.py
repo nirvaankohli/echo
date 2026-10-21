@@ -186,3 +186,12 @@ class BridgeTests(unittest.TestCase):
                 error = error.exceptions[0]
             self.assertIsInstance(error, RuntimeError)
             self.assertIn('did not complete', str(error))
+
+
+class GuidanceTests(unittest.TestCase):
+    def test_provider_canvas_custom_and_fallback_guidance(self):
+        from echo.tools.client import usage_guidance
+        self.assertIn('assignments', usage_guidance('canvas', {}))
+        self.assertIn('emails', usage_guidance('account_123', {'provider': 'gmail'}))
+        self.assertEqual(usage_guidance('custom', {'use_when': 'School assignments'}), 'School assignments')
+        self.assertIn('request matches', usage_guidance('unknown', {}))

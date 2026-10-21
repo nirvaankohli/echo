@@ -31,6 +31,8 @@ POLICY = ACCOUNT_INSTRUCTIONS + (
     'Use tools to verify created artifacts and include their links. Never invent tool access. '
     'Native computer use is available only if a configured tool provides it. '
     'Codex jobs are tracked automatically; do not poll them yourself. '
+    'For external-data requests, execute the relevant tools and return the actual findings, not a promise to check. '
+    'Infer Canvas for school, homework and assignments. Save or edit explicit user preferences with rules_save. '
     'Stop and report any blocker. Keep the final result concise for iMessage.'
     ' Every tool proposal must include arguments and a brief rationale describing the intended effect '
     'and how the user request authorizes it. This is a short action justification, not a private reasoning trace. '
@@ -132,10 +134,14 @@ class Coordinator:
             except ValueError:
                 reply = 'That could not be saved as a memory. Keep credentials in your private configuration.'
         elif normalized.startswith('forget '):
-            count = self.memory.forget(text.strip()[7:])
+            query = text.strip()[7:]
+            count = self.memory.forget(query)
+            for rule in self.memory.rules(sender):
+                if query.casefold() in (rule['key'] + '\n' + rule['text']).casefold():
+                    count += int(self.memory.call_rule('rules_delete', {'key': rule['key']}, sender)['deleted'])
             reply = f'Removed {count} long-term memories. Task records and message history are separate.'
         elif normalized in ('what do you remember', 'show memory', '/memory'):
-            memories = self.memory.recent(limit=8)
+            memories = self.memory.rules(sender) + self.memory.recent(limit=8)
             reply = '\n'.join(item['text'] for item in memories) or 'No saved long-term memories yet.'
         if reply is not None:
             self.store.submit(message_id, sender, text, reply, status='control')
@@ -223,6 +229,10 @@ class Coordinator:
             local_tools, local_routes = self.schedules.tools()
             tools += local_tools
             routes.update(local_routes)
+            if not monitor:
+                rule_tools, rule_routes = self.memory.rule_tools()
+                tools += rule_tools
+                routes.update(rule_routes)
             if monitor:
                 tools, routes = monitoring.read_tools(tools, routes)
             definitions = {tool['name']: tool for tool in tools}
@@ -251,7 +261,7 @@ class Coordinator:
                 self.check(task_id, deadline)
                 plan = await asyncio.to_thread(budget.create, client,
                     model=os.environ.get('OPENAI_PLANNER_MODEL', 'gpt-4.1'),
-                    instructions=INSTRUCTIONS + policy + ' Produce a brief execution plan, using only listed available tools. '
+                    instructions=INSTRUCTIONS + policy + self.memory.rules_context(row['sender']) + ' Produce a brief execution plan, using only listed available tools. '
                     'For a simple question, say answer directly. Identify missing access and any required authorization.',
                     input=history + [{'role': 'user', 'content': 'Available tools: ' + json.dumps(tools)[:20000]}],
                     max_output_tokens=500, store=False)
@@ -261,7 +271,7 @@ class Coordinator:
                 self.check(task_id, deadline)
                 revision = self.sync_updates(task_id, history, revision)
                 result = await asyncio.to_thread(budget.create, client, model=model,
-                    instructions=INSTRUCTIONS + policy, input=history, tools=tools,
+                    instructions=INSTRUCTIONS + policy + self.memory.rules_context(row['sender']), input=history, tools=tools,
                     parallel_tool_calls=False, max_output_tokens=1200, store=False)
                 self.store.change(task_id, rounds=round_number + 1)
                 if self.store.task(task_id)['revision'] != revision:
@@ -381,7 +391,13 @@ class Coordinator:
             output = json.loads(previous['result'])
         else:
             self.store.change(task_id, tool_calls=current['tool_calls'] + 1)
-            if server == 'echo_scheduler':
+            if server == 'echo_memory':
+                try:
+                    result = self.memory.call_rule(tool, args, current['sender'])
+                except (ValueError, TypeError, KeyError) as exc:
+                    result = {'saved': False, 'error': str(exc)}
+                output = {'structuredContent': result}
+            elif server == 'echo_scheduler':
                 try:
                     result = self.schedules.call(tool, args, task_id, key)
                 except (ValueError, TypeError, KeyError) as exc:

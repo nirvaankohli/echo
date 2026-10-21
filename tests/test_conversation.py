@@ -141,7 +141,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.chat.receive('a', 'owner', 'First')['status'], 'handled')
         self.assertEqual(self.chat.claim()['id'], 'b')
         self.assertEqual(self.store.summary()['tasks'], {'queued': 1})
-        self.assertEqual(len(self.store.outbox()), 1)
+        self.assertEqual(len(self.store.outbox()), 0)
         with self.assertRaises(ValueError):
             self.chat.receive('a', 'owner', 'Different')
 
@@ -313,6 +313,36 @@ class ConversationTests(unittest.TestCase):
             self.chat.process(self.chat.claim())
         self.assertIsNone(self.store.claim())
         self.assertIn("couldn't process", self.store.outbox()[0]['text'])
+
+    def test_tool_request_waits_for_result_without_acknowledgment(self):
+        self.turn('assignment', 'Show my assignments', action='start')
+        self.assertEqual(self.store.outbox(), [])
+        self.assertEqual(self.store.task('assignment')['status'], 'queued')
+
+    def test_preferences_injected_without_keyword_match(self):
+        self.memory.call_rule('rules_save', {'key': 'style', 'text': 'Always answer concisely'}, 'owner')
+        self.chat.receive('a', 'owner', 'Hi')
+        row = self.chat.claim()
+        with patch('echo.agent.conversation.OpenAI') as factory:
+            client = factory.return_value.__enter__.return_value
+            client.responses.create.return_value = response(json.dumps(
+                dict(action='reply', target=None, response='Hello!')))
+            self.chat.process(row)
+            self.assertIn('Always answer concisely', client.responses.create.call_args.kwargs['instructions'])
+
+    def test_worker_saves_rule_and_refreshes_next_call(self):
+        self.turn('rule', 'Remember to show assignment due dates first', action='start')
+        call = Call()
+        call.name = 'rules_save'
+        call.arguments = json.dumps({'arguments': {'key': 'assignments', 'text': 'Show due dates first'},
+                                     'rationale': 'Save the requested preference.'})
+        client = Mock()
+        client.responses.create.side_effect = [response('Save preference.'),
+                                               response(calls=[call]), response('Remembered.')]
+        self.worker(client)
+        self.assertEqual(self.store.task('rule')['status'], 'completed')
+        self.assertEqual(self.memory.rules('owner')[0]['text'], 'Show due dates first')
+        self.assertIn('Show due dates first', client.responses.create.call_args.kwargs['instructions'])
 
 
 if __name__ == '__main__':

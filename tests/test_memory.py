@@ -153,6 +153,25 @@ class MemoryTests(unittest.TestCase):
             result = memory.retrieve('biology')
         self.assertEqual(result[0]['text'], 'Biology preference')
 
+    def test_rules_persist_replace_isolate_and_delete(self):
+        self.memory.call_rule('rules_save', {'key': 'school', 'text': 'Use Canvas for assignments'}, 'Owner')
+        reopened = Memory(self.path)
+        self.assertIn('Canvas', reopened.rules_context('owner'))
+        self.assertEqual(reopened.rules('other'), [])
+        reopened.call_rule('rules_save', {'key': 'school', 'text': 'Show due dates first'}, 'owner')
+        self.assertEqual(len(reopened.rules('owner')), 1)
+        self.assertNotIn('Canvas', reopened.rules_context('owner'))
+        reopened.call_rule('rules_delete', {'key': 'school'}, 'other')
+        self.assertEqual(len(reopened.rules('owner')), 1)
+        self.assertTrue(reopened.call_rule('rules_delete', {'key': 'school'}, 'owner')['deleted'])
+        self.assertEqual(reopened.rules('owner'), [])
+
+    def test_rule_validation(self):
+        for args in ({'key': '', 'text': 'hello'}, {'key': 'x', 'text': 'password=secret'},
+                     {'key': 'x', 'text': 'a' * 2001}, {'key': 'x', 'text': None}):
+            with self.assertRaises(ValueError):
+                self.memory.call_rule('rules_save', args, 'owner')
+
 
 if __name__ == '__main__':
     unittest.main()

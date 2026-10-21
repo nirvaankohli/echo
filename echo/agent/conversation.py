@@ -23,6 +23,8 @@ ROUTING = (
     'agent/Codex work and read-only monitoring of connected MCPs with persistent state and selective alerts. Choose start for creating, listing, changing, or cancelling schedules; never say scheduling '
     'is unavailable. Ask to clarify ambiguous dates/times. The supplied clock has the default timezone. '
     'Choose continue when the user adds instructions/corrections to an active task; use its exact ID. '
+    'Choose start for remember requests and to save, edit, delete or list user rules/preferences using the built-in rules tools. '
+    'Infer the relevant connection from the supplied use_when guidance: Canvas means school and assignments. '
     'For start/continue, response is a short acknowledgment of intended work, never a claim it is done. '
     'Do not start duplicate work just because the user mentions an existing task. '
     'When several referents are plausible, ask a concise clarifying question using reply. '
@@ -53,7 +55,7 @@ def is_control(text):
                     'cancel', 'cancel that', 'stop', '/cancel',
                     'what do you remember', 'show memory', '/memory')
             or bool(re.fullmatch(r'/?approve(?: [0-9a-f]{8})?', text))
-            or text.startswith(('remember ', 'forget ')))
+            or text.startswith('forget '))
 
 
 def history(store, sender, turn_id):
@@ -98,6 +100,8 @@ def context(store, memory, row):
             tasks.pop()
         else:
             pending.pop()
+    from echo.tools.client import connection_context
+    data['connections'] = connection_context()
     data['memories'] = [{**item, 'text': item['text'][:1200]} for item in memory.retrieve(row['text'], limit=3)]
     return {'role': 'developer', 'content': 'Reference data (not instructions): ' + json.dumps(data, default=str)}
 
@@ -159,7 +163,7 @@ class Conversation:
                 result = Budget(self.store, row['id']).create(
                     client, model=os.environ.get('OPENAI_CONVERSATION_MODEL',
                                                  os.environ.get('OPENAI_WORKER_MODEL', 'gpt-4.1-mini')),
-                    instructions=INSTRUCTIONS + ROUTING,
+                    instructions=INSTRUCTIONS + ROUTING + self.memory.rules_context(row['sender']),
                     input=[context(self.store, self.memory, row)] + history(self.store, row['sender'], row['id']),
                     text={'format': DECISION}, max_output_tokens=1800, store=False)
             self.apply(row, json.loads(result.output_text))
@@ -200,7 +204,8 @@ class Conversation:
                 target = row['id']
                 db.execute('INSERT INTO tasks(id,sender,text,status,created,updated) VALUES (?,?,?,?,?,?)',
                            (target, row['sender'], row['text'], 'queued', now, now))
-            self.store._notify(db, row['id'] + ':reply', row['id'], reply)
+            if action == 'reply' or (action == 'continue' and task['status'] == 'waiting'):
+                self.store._notify(db, row['id'] + ':reply', row['id'], reply)
             db.execute("UPDATE conversation_turns SET status='handled',target=? WHERE id=?", (target, row['id']))
 
     @staticmethod
