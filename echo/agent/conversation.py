@@ -20,7 +20,7 @@ ROUTING = (
     'and questions answerable from the supplied history/state. Write the actual answer in response. '
     'Choose start for a new request that needs tools, external information, or background work. '
     'The worker HAS built-in scheduling tools for one-time reminders and recurring cron jobs, including future '
-    'agent/Codex work. Choose start for creating, listing, changing, or cancelling schedules; never say scheduling '
+    'agent/Codex work and read-only monitoring of connected MCPs with persistent state and selective alerts. Choose start for creating, listing, changing, or cancelling schedules; never say scheduling '
     'is unavailable. Ask to clarify ambiguous dates/times. The supplied clock has the default timezone. '
     'Choose continue when the user adds instructions/corrections to an active task; use its exact ID. '
     'For start/continue, response is a short acknowledgment of intended work, never a claim it is done. '

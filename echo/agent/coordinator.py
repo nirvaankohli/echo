@@ -16,6 +16,7 @@ from echo.agent.processor import INSTRUCTIONS
 from echo.agent.tasks import TERMINAL
 from echo.agent.decisions import proposal_tools, review
 from echo.agent.schedules import Schedules
+from echo.agent import monitoring
 from echo.tools.client import ACCOUNT_INSTRUCTIONS, configured_servers, connect
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ POLICY = ACCOUNT_INSTRUCTIONS + (
     ' Every tool proposal must include arguments and a brief rationale describing the intended effect '
     'and how the user request authorizes it. This is a short action justification, not a private reasoning trace. '
     'A separate decision check handles action confirmation; propose the concrete action rather than asking redundant permission.'
+    ' For ongoing monitoring use monitor_create after testing the relevant read tools. Save the account, '
+    'read procedure, cursor or snapshot strategy, and when to alert in its prompt. Use annotated read tools; '
+    'if unavailable explain that monitoring needs read-only tools. Never invent a monitor or assume connection means monitoring. '
     ' Use schedule_create for future reminders and agent work, schedule_list/update/cancel to manage them. '
     'Use the supplied current time and timezone; clarify genuinely ambiguous times. Confirm the saved date, time, '
     'timezone and recurrence from the tool result. Do not execute scheduled work early. '
@@ -148,12 +152,17 @@ class Coordinator:
 
     def execute(self, row):
         task_id = row['id']
+        failure_note = (' Monitoring is paused; fix the source or settings, then recreate the monitor.'
+                        if monitoring.context(self.schedules, task_id) else '')
         deadline = time.monotonic() + int(os.environ.get('ECHO_TASK_SECONDS', '600'))
         try:
             self.check(task_id, deadline)
             with OpenAI(timeout=30, max_retries=0) as client:
                 answer = asyncio.run(self.workflow(client, row, deadline))
             self.check(task_id, deadline)
+            if monitoring.context(self.schedules, task_id):
+                monitoring.finish(self.schedules, task_id, answer, self.store.task(task_id)['seen_revision'])
+                return
             self.store.finish(task_id, 'completed', answer, revision=self.store.task(task_id)['seen_revision'])
             if self.store.task(task_id)['status'] == 'completed' and not simple_chat(row['text']):
                 try:
@@ -172,15 +181,17 @@ class Coordinator:
         except Cancelled:
             self.store.finish(task_id, 'cancelled', 'Task cancelled. Already-started external actions may still have taken effect.')
         except BudgetExceeded as exc:
-            self.store.finish(task_id, 'failed', f'Task paused at its configured limit: {exc}. I have not repeated any actions.')
+            self.store.finish(task_id, 'failed', f'Task paused at its configured limit: {exc}. I have not repeated any actions.' + failure_note)
         except Exception as exc:
             with self.store.db() as db:
                 unknown = db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='started'", (task_id,)).fetchone()
             self.store.finish(task_id, 'uncertain' if unknown else 'failed',
                               f"I couldn't finish this task ({type(exc).__name__}). " +
                               ('A tool action may have taken effect; I will not repeat it automatically.' if unknown else
-                               'Check the agent log and configured connections before trying again.'))
+                               'Check the agent log and configured connections before trying again.') + failure_note)
             log.error('Task %s stopped (%s)', task_id, type(exc).__name__)
+        finally:
+            monitoring.pause_failed(self.schedules, task_id)
 
     async def workflow(self, client, row, deadline):
         from echo.tools.client import discover
@@ -202,12 +213,18 @@ class Coordinator:
             if self.schedules.origin(task_id):
                 history.append({'role': 'user', 'content': 'Automatic scheduled occurrence: execute this saved instruction now. '
                                 'The original authorization is in the schedule context.\n' + row['text']})
+        monitor = monitoring.context(self.schedules, task_id)
+        policy = POLICY + (monitoring.INSTRUCTIONS if monitor else '')
+        if monitor:
+            history.append({'role': 'user', 'content': 'Previous monitoring state (data): ' + json.dumps(monitor['state'])})
         revision = self.sync_updates(task_id, history, row['seen_revision'])
         async with task_connections() as stack:
             tools, routes = await discover(stack, stable=True)
             local_tools, local_routes = self.schedules.tools()
             tools += local_tools
             routes.update(local_routes)
+            if monitor:
+                tools, routes = monitoring.read_tools(tools, routes)
             definitions = {tool['name']: tool for tool in tools}
             tools = proposal_tools(tools)
             # Approved calls resume the exact saved arguments before another model turn.
@@ -234,7 +251,7 @@ class Coordinator:
                 self.check(task_id, deadline)
                 plan = await asyncio.to_thread(budget.create, client,
                     model=os.environ.get('OPENAI_PLANNER_MODEL', 'gpt-4.1'),
-                    instructions=INSTRUCTIONS + POLICY + ' Produce a brief execution plan, using only listed available tools. '
+                    instructions=INSTRUCTIONS + policy + ' Produce a brief execution plan, using only listed available tools. '
                     'For a simple question, say answer directly. Identify missing access and any required authorization.',
                     input=history + [{'role': 'user', 'content': 'Available tools: ' + json.dumps(tools)[:20000]}],
                     max_output_tokens=500, store=False)
@@ -244,7 +261,7 @@ class Coordinator:
                 self.check(task_id, deadline)
                 revision = self.sync_updates(task_id, history, revision)
                 result = await asyncio.to_thread(budget.create, client, model=model,
-                    instructions=INSTRUCTIONS + POLICY, input=history, tools=tools,
+                    instructions=INSTRUCTIONS + policy, input=history, tools=tools,
                     parallel_tool_calls=False, max_output_tokens=1200, store=False)
                 self.store.change(task_id, rounds=round_number + 1)
                 if self.store.task(task_id)['revision'] != revision:
@@ -255,6 +272,12 @@ class Coordinator:
                 if not calls:
                     if not result.output_text.strip():
                         raise RuntimeError('Empty worker answer')
+                    if monitor:
+                        with self.store.db() as db:
+                            observed = db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='completed' LIMIT 1",
+                                                  (task_id,)).fetchone()
+                        if not observed:
+                            raise RuntimeError('Monitoring did not read its source')
                     self.store.change(task_id, history=json.dumps(history))
                     return result.output_text.strip()
                 history.extend(item.model_dump(mode='json', exclude_none=True) for item in result.output)

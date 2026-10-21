@@ -36,6 +36,7 @@ FIELDS = {
     'prompt': {'type': 'string', 'description': 'Self-contained work to execute WHEN DUE, or empty for reminder-only. Include necessary context, target and constraints; do not execute it now.'},
 }
 SPECS = {
+    'monitor_create': ('Create recurring read-only monitoring of a connected account. First discover and test its read tools. Save the exact account, read procedure, baseline/cursor strategy and importance criteria in prompt. Unchanged checks stay quiet. Manage with schedule_list/cancel; cancel and recreate to change monitoring.', {key: FIELDS[key] for key in ('title', 'timezone', 'cron', 'prompt')}),
     'schedule_create': ('Save a one-time reminder or recurring agent job. Exactly one of at/cron; at least one of reminder/prompt. Returns saved ID and next run. No shell cron or calendar setup needed.', FIELDS),
     'schedule_update': ('Replace the complete definition of an existing schedule. List first to find its ID. This re-enables it. Already-running occurrences are not changed.', {'id': {'type': 'string'}, **FIELDS}),
     'schedule_list': ('List your active schedules and recent inactive ones, including next run and last task status.', {}),
@@ -48,6 +49,13 @@ class Schedules:
         self.store = store
         with store.db() as db:
             db.executescript('''
+                CREATE TABLE IF NOT EXISTS monitors (
+                    schedule_id TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE TABLE IF NOT EXISTS monitor_alerts (
+                    schedule_id TEXT NOT NULL, key TEXT NOT NULL,
+                    PRIMARY KEY(schedule_id,key)
+                );
                 CREATE TABLE IF NOT EXISTS schedules (
                     id TEXT PRIMARY KEY, sender TEXT NOT NULL, title TEXT NOT NULL,
                     timezone TEXT NOT NULL, at TEXT, cron TEXT, reminder TEXT NOT NULL,
@@ -79,6 +87,7 @@ class Schedules:
                 last = db.execute('SELECT t.id,t.status FROM schedule_runs r JOIN tasks t ON t.id=r.task_id '
                                   'WHERE r.schedule_id=? ORDER BY r.due DESC LIMIT 1', (row['id'],)).fetchone()
                 row['last_run'] = dict(last) if last else None
+                row['monitoring'] = bool(db.execute('SELECT 1 FROM monitors WHERE schedule_id=?', (row['id'],)).fetchone())
                 if row['next_run'] is not None:
                     row['next_run'] = datetime.fromtimestamp(row['next_run'], ZoneInfo(row['timezone'])).isoformat()
                 for key in ('sender', 'authorization', 'source_task'):
@@ -89,6 +98,12 @@ class Schedules:
         now = time.time() if now is None else now
         if name not in SPECS or set(args) != set(SPECS[name][1]):
             raise ValueError('Invalid schedule tool arguments')
+        monitoring = name == 'monitor_create'
+        if monitoring:
+            args = {**args, 'at': None, 'reminder': ''}
+            if not args['cron'] or not isinstance(args['prompt'], str) or not args['prompt'].strip():
+                raise ValueError('Monitoring requires a recurrence and read procedure')
+            name = 'schedule_create'
         task = self.store.task(task_id)
         if name == 'schedule_list':
             return {'schedules': self.listing(task['sender']), **clock_context()}
@@ -120,6 +135,8 @@ class Schedules:
                 raise ValueError('The requesting task changed; propose the schedule again')
             existing = db.execute('SELECT * FROM schedules WHERE id=? AND lower(sender)=?',
                                   (schedule_id, task['sender'].casefold())).fetchone()
+            if name == 'schedule_update' and db.execute('SELECT 1 FROM monitors WHERE schedule_id=?', (schedule_id,)).fetchone():
+                raise ValueError('Cancel and recreate a monitor to change its definition')
             if name != 'schedule_create' and not existing:
                 raise ValueError('Schedule not found for this owner')
             if name == 'schedule_create' and existing:
@@ -145,6 +162,8 @@ class Schedules:
                        'authorization=excluded.authorization,next_run=excluded.next_run,enabled=1,updated=excluded.updated',
                        (schedule_id, task['sender'], args['title'], args['timezone'], args['at'], args['cron'],
                         args['reminder'], args['prompt'], task_id, json.dumps(authorization), due, 1, now, now))
+            if monitoring:
+                db.execute('INSERT OR IGNORE INTO monitors(schedule_id) VALUES (?)', (schedule_id,))
         return {'id': schedule_id, 'saved': True, 'timezone': args['timezone'],
                 'next_run': datetime.fromtimestamp(due, ZoneInfo(args['timezone'])).isoformat()}
 
