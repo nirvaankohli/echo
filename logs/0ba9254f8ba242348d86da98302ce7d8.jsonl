@@ -128,3 +128,5 @@
 {"time": "2026-10-30T20:34:42.644247+00:00", "event": "update_failed", "error": "CalledProcessError"}
 {"time": "2026-10-30T21:53:25.911613+00:00", "event": "update_failed", "error": "CalledProcessError"}
 {"time": "2026-11-04T11:23:24.191954+00:00", "event": "update_failed", "error": "CalledProcessError"}
+{"time": "2026-11-06T13:11:45.075404+00:00", "event": "update_failed", "error": "CalledProcessError"}
+{"time": "2026-11-06T14:07:10.016995+00:00", "event": "update_failed", "error": "CalledProcessError"}
